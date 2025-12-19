@@ -114,4 +114,7 @@ def menu():
 # EJECUCIÓN
 # ------------------------------------------
 if __name__ == "__main__":
-    menu()
+    
+    cantidad = int(input("\n¿Cuántas asignaciones desea ingresar?: "))
+    for i in range (cantidad) : 
+        menu()
