@@ -1,6 +1,6 @@
 # backend/db_utils.py
 from sqlalchemy import text
-from backend.database import SessionLocal
+from database import SessionLocal
 
 def insertar_planilla(tabla: str, datos: dict):
     session = SessionLocal()

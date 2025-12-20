@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from datetime import datetime
-from backend.database import engine
+from database import engine
 from settings import settings
 from sugerir_territorios import router as sugerencias_router
 
