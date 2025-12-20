@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import text
 from datetime import date
-from backend.database import engine
+from database import engine
 from time import time
 
 CACHE = {}
@@ -70,7 +70,7 @@ def sugerir_territorios(rango: str, limit: int = 10):
                 severidad = "alto"
             else:
                 severidad = "normal"
-            
+
             sugerencias.append({
                 "numero": row.numero,
                 "ultima_fecha": ultima,
