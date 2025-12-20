@@ -5,3 +5,4 @@ pydantic
 sqlalchemy
 psycopg2-binary
 python-dotenv
+pydantic-settings>=2.0
