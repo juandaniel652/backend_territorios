@@ -6,8 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from datetime import datetime
 from backend.database import engine
-from backend.settings import settings
-from backend.sugerir_territorios import router as sugerencias_router
+from settings import settings
+from sugerir_territorios import router as sugerencias_router
 
 
 app = FastAPI()
