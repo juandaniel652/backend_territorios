@@ -7,12 +7,12 @@ from sqlalchemy import text
 from datetime import datetime
 from backend.database import engine
 from backend.settings import settings
+from backend.sugerir_territorios import router as sugerencias_router
 
 
 app = FastAPI()
 
-# Permitir solicitudes desde cualquier origen (para desarrollo)
-
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -27,7 +27,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 👇 PRIMERO rutas fijas
+app.include_router(sugerencias_router)
 
+# 👇 DESPUÉS rutas dinámicas
 @app.get("/territorios/{numero}")
 def obtener_asignaciones(numero: int):
     
@@ -40,8 +43,10 @@ def obtener_asignaciones(numero: int):
     FROM Asignaciones a
     JOIN Territorios t ON a.territorio_id = t.id
     JOIN Conductores c ON a.conductor_id = c.id
-    WHERE t.numero = :numero;
+    WHERE t.numero = :numero
+    ORDER BY a.fecha_asignado;
     """
+
 
     try:
         with engine.connect() as conn:
