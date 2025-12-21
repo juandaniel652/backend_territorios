@@ -9,8 +9,6 @@ from database import engine
 from sugerir_territorios import router as sugerencias_router
 from asignaciones import router as asignaciones_router
 from login import router as login_router
-from asignaciones import router as asignaciones_router
-
 
 
 app = FastAPI()
@@ -71,9 +69,6 @@ def obtener_asignaciones(numero: int):
         filas.sort(
             key=lambda f: datetime.strptime(str(f["fecha_asignado"]), "%Y-%m-%d") if f["fecha_asignado"] else datetime.max
         )
-        
-        print(">>> BACKEND.APP CARGADO <<<")
-
 
         return {"territorio": numero, "asignaciones": filas}
 
@@ -85,18 +80,3 @@ def obtener_asignaciones(numero: int):
 def health():
     return {"status": "ok"}
 
-
-
-
-#Backend:
-#
-#uvicorn backend.main:app --reload
-#
-#
-#Frontend:
-#cd frontend python -m http.server 5501
-#
-#
-#Abrí navegador:
-#
-#http://127.0.0.1:5501
