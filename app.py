@@ -1,13 +1,14 @@
 #Iniciar db en local con: 
-#uvicorn backend.app:app --reload
+#uvicorn app:app --reload --host 127.0.0.1 --port 8000
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from datetime import datetime
 from database import engine
-from settings import settings
 from sugerir_territorios import router as sugerencias_router
+from asignaciones import router as asignaciones_router
+
 
 
 app = FastAPI()
@@ -20,6 +21,8 @@ app.add_middleware(
         "http://localhost:5500",
         "http://127.0.0.1:5501",
         "http://localhost:5501",
+        "http://localhost:3000",  # tu frontend
+        "http://127.0.0.1:3000",
         "https://territorios-front-end.vercel.app",
     ],
     allow_credentials=False,
@@ -29,6 +32,7 @@ app.add_middleware(
 
 # 👇 PRIMERO rutas fijas
 app.include_router(sugerencias_router)
+app.include_router(asignaciones_router)
 
 # 👇 DESPUÉS rutas dinámicas
 @app.get("/territorios/{numero}")
