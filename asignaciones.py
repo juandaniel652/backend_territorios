@@ -1,12 +1,16 @@
 # asignaciones.py
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from datetime import date
-from database import engine
 from sqlalchemy import text
+from database import engine
+from auth import get_current_user
 
 router = APIRouter()
 
+# -------------------------
+# Esquema de asignación
+# -------------------------
 class AsignacionCrear(BaseModel):
     numero_territorio: int
     conductor: str
@@ -14,12 +18,17 @@ class AsignacionCrear(BaseModel):
     fecha_completado: date
     total_abarcado: str
 
+# -------------------------
+# Ruta protegida para crear asignación
+# -------------------------
 @router.post("/asignaciones")
-def crear_asignacion(asignacion: AsignacionCrear):
+def crear_asignacion(asignacion: AsignacionCrear, user=Depends(get_current_user)):
+    # Solo usuarios admin pueden insertar
+    if user["rol"] != "admin":
+        raise HTTPException(status_code=403, detail="No tiene permisos")
+
     try:
-        # -------------------------
-        # Usamos engine.begin() para que todo se haga en una transacción
-        # -------------------------
+        # Usamos transacción para asegurar consistencia
         with engine.begin() as conn:
             # -------------------------
             # Obtener ID del territorio
@@ -34,7 +43,7 @@ def crear_asignacion(asignacion: AsignacionCrear):
             territorio_id = territorio[0]
 
             # -------------------------
-            # Obtener ID del conductor
+            # Obtener o insertar conductor
             # -------------------------
             conductor = conn.execute(
                 text("SELECT id FROM Conductores WHERE nombre_completo = :nombre"),

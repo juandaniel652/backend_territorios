@@ -5,6 +5,7 @@ from pydantic import Field
 class Settings(BaseSettings):
     # URL de la base de datos (obligatorio)
     DATABASE_URL: str = Field(...)
+    SECRET_KEY: str
 
     class Config:
         # En desarrollo, busca el .env en la raíz del proyecto

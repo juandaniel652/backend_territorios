@@ -8,6 +8,8 @@ from datetime import datetime
 from database import engine
 from sugerir_territorios import router as sugerencias_router
 from asignaciones import router as asignaciones_router
+from login import router as login_router
+from asignaciones import router as asignaciones_router
 
 
 
@@ -30,9 +32,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # 👇 PRIMERO rutas fijas
+app.include_router(login_router, prefix="/auth", tags=["auth"])
 app.include_router(sugerencias_router)
 app.include_router(asignaciones_router)
+
+
+
 
 # 👇 DESPUÉS rutas dinámicas
 @app.get("/territorios/{numero}")
