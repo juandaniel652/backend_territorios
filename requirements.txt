@@ -1,6 +1,10 @@
 fastapi
-uvicorn[standard]
+uvicorn
+mysql-connector-python
+pydantic
 sqlalchemy
 psycopg2-binary
 python-dotenv
 pydantic-settings>=2.0
+python-jose
+passlib[argon2]
