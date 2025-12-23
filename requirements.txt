@@ -8,3 +8,4 @@ python-dotenv
 pydantic-settings>=2.0
 python-jose
 passlib[argon2]
+python-multipart
