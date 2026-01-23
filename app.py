@@ -13,7 +13,6 @@ from login import router as login_router
 
 app = FastAPI()
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -29,7 +28,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # 👇 PRIMERO rutas fijas
 app.include_router(login_router, prefix="/auth", tags=["auth"])
