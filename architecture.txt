@@ -1,0 +1,35 @@
+backend/
+│
+├── main.py
+├── core/
+│   ├── config.py
+│   ├── security.py
+│   └── database.py
+│
+├── domain/                  # ← DDD light
+│   ├── asignacion/
+│   │   ├── model.py         # SQLAlchemy model
+│   │   ├── schema.py        # Pydantic I/O
+│   │   ├── repository.py    # Interfaz (DI) + implementación
+│   │   └── service.py       # Lógica de negocio
+│   ├── territorio/
+│   │   ├── model.py
+│   │   ├── schema.py
+│   │   ├── repository.py
+│   │   └── service.py
+│   └── conductor/
+│       ├── model.py
+│       ├── schema.py
+│       └── repository.py
+│
+├── api/
+│   ├── deps.py
+│   └── v1/
+│       ├── router.py
+│       ├── asignaciones.py
+│       ├── territorios.py
+│       └── auth.py
+│
+└── scripts/
+    ├── insertar_asignaciones.py
+    └── consultar_territorios.py

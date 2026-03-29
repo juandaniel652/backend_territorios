@@ -1,0 +1,7 @@
+# Dependencias de desarrollo — NO instalar en producción
+# pip install -r requirements-dev.txt
+
+pytest                  # runner de tests
+pytest-asyncio          # soporte async si se necesita en el futuro
+httpx                   # cliente HTTP para TestClient de FastAPI
+pytest-cov              # reporte de cobertura

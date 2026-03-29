@@ -1,0 +1,63 @@
+"""
+domain/territorio/schema.py
+
+Contratos de datos para el dominio Territorio.
+
+Separamos Input / Output explícitamente:
+  - TerritorioOut: lo que la API devuelve (nunca expone el id interno directo en listas)
+  - AsignacionDeTerritorioOut: shape de cada asignación dentro de GET /territorios/{numero}
+  - TerritorioConAsignacionesOut: respuesta completa del endpoint de historial
+
+Esto reemplaza el dict crudo que se armaba directamente en app.py y querys_territorios.py.
+"""
+
+from pydantic import BaseModel, ConfigDict
+from datetime import date
+from typing import Optional
+
+
+class TerritorioOut(BaseModel):
+    """Representación pública de un territorio."""
+    id: int
+    numero: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AsignacionDeTerritorioOut(BaseModel):
+    """
+    Shape de cada fila del historial de asignaciones de un territorio.
+    Equivale a lo que antes se construía como dict crudo en app.py.
+    """
+    conductor: str
+    fecha_asignado: Optional[date] = None
+    fecha_completado: Optional[date] = None
+    cantidad_abarcado: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TerritorioConAsignacionesOut(BaseModel):
+    """Respuesta completa para GET /territorios/{numero}."""
+    territorio: int
+    asignaciones: list[AsignacionDeTerritorioOut]
+    mensaje: Optional[str] = None
+
+
+class SugerenciaTerritorio(BaseModel):
+    """
+    Shape de cada ítem en la respuesta de sugerencias.
+    Reemplaza el dict crudo en sugerir_territorios.py.
+    """
+    numero: int
+    ultima_fecha: Optional[date] = None
+    dias_atraso: Optional[int] = None
+    severidad: str   # "nunca" | "critico" | "alto" | "normal"
+
+
+class SugerenciasOut(BaseModel):
+    """Respuesta completa para GET /territorios/sugerencias."""
+    rango: str
+    total: int
+    sugerencias: list[SugerenciaTerritorio]
+    cache: bool = False
