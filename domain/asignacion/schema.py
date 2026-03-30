@@ -33,7 +33,7 @@ class AsignacionCreate(BaseModel):
     conductor: str
     fecha_asignado: date
     fecha_completado: Optional[date] = None
-    total_abarcado: str
+    cantidad_abarcado: str
 
     @field_validator("conductor")
     @classmethod

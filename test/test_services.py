@@ -216,7 +216,7 @@ class TestAsignacionService:
             conductor="Pedro López",
             fecha_asignado=date(2024, 3, 1),
             fecha_completado=date(2024, 4, 1),
-            total_abarcado="Completo",
+            cantidad_abarcado="Completo",
         )
 
     def test_crea_asignacion_correctamente(self):

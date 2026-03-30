@@ -85,7 +85,7 @@ class AsignacionService:
                 conductor_id=conductor.id,
                 fecha_asignado=data.fecha_asignado,
                 fecha_completado=data.fecha_completado,
-                cantidad_abarcado=data.total_abarcado,
+                cantidad_abarcado=data.cantidad_abarcado,
             )
 
             # ── Paso 4: confirmar toda la transacción ────────────────────────
