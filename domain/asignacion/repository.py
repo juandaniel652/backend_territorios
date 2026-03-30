@@ -1,27 +1,13 @@
 """
 domain/asignacion/repository.py
-
-Patrón Repository + DI para el dominio Asignacion.
-
-Responsabilidad: persistencia de asignaciones únicamente.
-NO resuelve conductores ni territorios — eso es tarea del servicio
-que coordina múltiples repositorios.
-
-El método crear() recibe IDs ya resueltos (territorio_id, conductor_id),
-lo que lo hace atómico y testeable de forma aislada.
 """
 
-from typing import Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable, Optional
 from sqlalchemy.orm import Session
 from datetime import date
-from typing import Optional
 
 from domain.asignacion.model import Asignacion
 
-
-# ─────────────────────────────────────────────
-# 1. Protocolo (interfaz para DI)
-# ─────────────────────────────────────────────
 
 @runtime_checkable
 class AsignacionRepositoryProtocol(Protocol):
@@ -33,37 +19,26 @@ class AsignacionRepositoryProtocol(Protocol):
         fecha_asignado: date,
         fecha_completado: Optional[date],
         cantidad_abarcado: str,
-    ) -> Asignacion:
-        """
-        Inserta una nueva asignación y la retorna con su id.
-        Los IDs de territorio y conductor deben estar ya resueltos.
-        """
-        ...
+    ) -> Asignacion: ...
 
-    def obtener_por_id(self, asignacion_id: int) -> Asignacion | None:
-        """Retorna una asignación por su PK, o None si no existe."""
-        ...
+    def obtener_por_id(self, asignacion_id: int) -> Asignacion | None: ...
 
-    def listar_por_territorio(self, territorio_id: int) -> list[Asignacion]:
-        """Retorna todas las asignaciones de un territorio ordenadas por fecha."""
-        ...
+    def listar_por_territorio(self, territorio_id: int) -> list[Asignacion]: ...
 
+    # ── NUEVO ────────────────────────────────────────────────────────────────
+    def actualizar(
+        self,
+        asignacion: Asignacion,
+        conductor_id: Optional[int],
+        fecha_asignado: Optional[date],
+        fecha_completado: Optional[date],
+        cantidad_abarcado: Optional[str],
+    ) -> Asignacion: ...
 
-# ─────────────────────────────────────────────
-# 2. Implementación SQLAlchemy
-# ─────────────────────────────────────────────
+    def eliminar(self, asignacion: Asignacion) -> None: ...
+
 
 class AsignacionRepository:
-    """
-    Implementación concreta del repositorio de asignaciones.
-    Recibe Session como argumento → sin conexiones propias (DI).
-
-    Nota sobre flush() vs commit():
-      flush() escribe en la transacción activa sin confirmarla.
-      El commit lo hace el servicio (o la sesión del request en FastAPI).
-      Esto permite que múltiples operaciones en una misma request
-      sean atómicas: si falla cualquiera, todo el bloque hace rollback.
-    """
 
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -84,7 +59,7 @@ class AsignacionRepository:
             cantidad_abarcado=cantidad_abarcado,
         )
         self.db.add(asignacion)
-        self.db.flush()  # popula asignacion.id sin cerrar la transacción
+        self.db.flush()
         return asignacion
 
     def obtener_por_id(self, asignacion_id: int) -> Asignacion | None:
@@ -97,3 +72,35 @@ class AsignacionRepository:
             .order_by(Asignacion.fecha_asignado.asc().nullslast())
             .all()
         )
+
+    # ── NUEVO ────────────────────────────────────────────────────────────────
+    def actualizar(
+        self,
+        asignacion: Asignacion,
+        conductor_id: Optional[int] = None,
+        fecha_asignado: Optional[date] = None,
+        fecha_completado: Optional[date] = None,
+        cantidad_abarcado: Optional[str] = None,
+    ) -> Asignacion:
+        """
+        Actualiza solo los campos que llegaron (patch semántico).
+        El objeto ORM se modifica en la sesión activa; el commit
+        lo hace el servicio.
+        """
+        if conductor_id is not None:
+            asignacion.conductor_id = conductor_id
+        if fecha_asignado is not None:
+            asignacion.fecha_asignado = fecha_asignado
+        if fecha_completado is not None:
+            asignacion.fecha_completado = fecha_completado
+        if cantidad_abarcado is not None:
+            asignacion.cantidad_abarcado = cantidad_abarcado
+        self.db.flush()
+        return asignacion
+
+    def eliminar(self, asignacion: Asignacion) -> None:
+        """
+        Elimina la asignación. El commit lo hace el servicio.
+        """
+        self.db.delete(asignacion)
+        self.db.flush()

@@ -1,18 +1,5 @@
 """
 api/v1/asignaciones.py
-
-Router del dominio Asignacion.
-Solo responsabilidades HTTP: parseo, dependencias, delegación al servicio.
-
-Reemplaza asignaciones.py original que tenía:
-  - Schema definido inline (AsignacionCrear)
-  - SQL directo con engine.begin()
-  - Lógica de negocio (obtener/crear conductor) en el mismo bloque
-  - Verificación de rol inline (if user["rol"] != "admin")
-  - except Exception genérico
-
-Ahora el router tiene 3 líneas de lógica real: construir servicio,
-llamar a crear_asignacion, retornar resultado.
 """
 
 from fastapi import APIRouter, Depends
@@ -22,20 +9,20 @@ from core.database import get_db
 from api.deps import require_admin, CurrentUser
 from domain.asignacion.repository import AsignacionRepository
 from domain.asignacion.service import AsignacionService
-from domain.asignacion.schema import AsignacionCreate, AsignacionCreatedOut
+from domain.asignacion.schema import (
+    AsignacionCreate,
+    AsignacionUpdate,
+    AsignacionCreatedOut,
+    AsignacionUpdatedOut,
+    AsignacionDeletedOut,
+)
 from domain.conductor.repository import ConductorRepository
 from domain.territorio.repository import TerritorioRepository
 
 router = APIRouter(prefix="/asignaciones", tags=["asignaciones"])
 
 
-# ── Factory de servicio ──────────────────────────────────────────────────────
-
 def get_asignacion_service(db: Session = Depends(get_db)) -> AsignacionService:
-    """
-    Construye AsignacionService con los tres repositorios que necesita.
-    La Session es la misma para los tres → misma transacción.
-    """
     return AsignacionService(
         db=db,
         asignacion_repo=AsignacionRepository(db),
@@ -44,8 +31,7 @@ def get_asignacion_service(db: Session = Depends(get_db)) -> AsignacionService:
     )
 
 
-# ── Endpoints ────────────────────────────────────────────────────────────────
-
+# ── POST /asignaciones ───────────────────────────────────────────────────────
 @router.post(
     "",
     response_model=AsignacionCreatedOut,
@@ -55,19 +41,51 @@ def get_asignacion_service(db: Session = Depends(get_db)) -> AsignacionService:
 def crear_asignacion(
     data: AsignacionCreate,
     service: AsignacionService = Depends(get_asignacion_service),
-    _: CurrentUser = Depends(require_admin),   # solo admin puede crear
+    _: CurrentUser = Depends(require_admin),
+):
+    return service.crear_asignacion(data)
+
+
+# ── PUT /asignaciones/{id} ───────────────────────────────────────────────────
+@router.put(
+    "/{asignacion_id}",
+    response_model=AsignacionUpdatedOut,
+    summary="Editar una asignación existente",
+)
+def actualizar_asignacion(
+    asignacion_id: int,
+    data: AsignacionUpdate,
+    service: AsignacionService = Depends(get_asignacion_service),
+    _: CurrentUser = Depends(require_admin),
 ):
     """
-    Registra una nueva asignación de territorio a un conductor.
-
-    - Si el conductor no existe en la DB, se crea automáticamente.
-    - El campo `conductor_creado` en la respuesta indica si fue insertado.
-    - Requiere token JWT con rol `admin`.
+    Actualiza los campos enviados en el body.
+    Los campos no enviados quedan sin cambios (patch semántico).
 
     Raises:
-        401: token ausente o inválido.
-        403: usuario autenticado sin rol admin.
-        404: el territorio indicado no existe.
-        422: datos de entrada inválidos (fechas, campos vacíos).
+        401 / 403: sin token o sin rol admin.
+        404: asignación no encontrada.
+        422: datos inválidos.
     """
-    return service.crear_asignacion(data)
+    return service.actualizar_asignacion(asignacion_id, data)
+
+
+# ── DELETE /asignaciones/{id} ────────────────────────────────────────────────
+@router.delete(
+    "/{asignacion_id}",
+    response_model=AsignacionDeletedOut,
+    summary="Eliminar una asignación",
+)
+def eliminar_asignacion(
+    asignacion_id: int,
+    service: AsignacionService = Depends(get_asignacion_service),
+    _: CurrentUser = Depends(require_admin),
+):
+    """
+    Elimina permanentemente la asignación indicada.
+
+    Raises:
+        401 / 403: sin token o sin rol admin.
+        404: asignación no encontrada.
+    """
+    return service.eliminar_asignacion(asignacion_id)
