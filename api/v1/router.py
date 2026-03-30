@@ -14,8 +14,7 @@ Ventaja de versionar (/v1/):
 from fastapi import APIRouter
 from api.v1 import auth, territorios, asignaciones
 
-router = APIRouter(prefix="/v1")
-
+router = APIRouter(prefix="/api/v1")
 router.include_router(auth.router)
 router.include_router(territorios.router)
 router.include_router(asignaciones.router)
