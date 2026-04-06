@@ -29,6 +29,7 @@ class AsignacionDeTerritorioOut(BaseModel):
     Shape de cada fila del historial de asignaciones de un territorio.
     Equivale a lo que antes se construía como dict crudo en app.py.
     """
+    id: int
     conductor: str
     fecha_asignado: Optional[date] = None
     fecha_completado: Optional[date] = None

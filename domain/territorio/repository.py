@@ -96,6 +96,7 @@ class TerritorioRepository:
         """
         sql = text("""
             SELECT
+                a.id,
                 c.nombre_completo  AS conductor,
                 a.fecha_asignado,
                 a.fecha_completado,
