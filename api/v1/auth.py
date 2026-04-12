@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from core.database import get_db
-from core.security import verify_password, create_access_token
+from core.security import verify_password, create_access_token, get_password_hash
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -28,6 +28,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+class UserCreate(BaseModel):
+    email: str
+    password: str
 
 
 # ── Helpers locales (hasta que auth tenga su propio dominio) ─────────────────
@@ -88,3 +92,33 @@ def login(
     )
 
     return TokenOut(access_token=token)
+
+#---------------------------------------------
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+def register(user_in: UserCreate, db: Session = Depends(get_db)):
+    """
+    Registra un nuevo usuario. Por defecto el rol es 'user'.
+    """
+    # 1. Verificar si ya existe
+    existe = _get_user_by_email(user_in.email, db)
+    if existe:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El email ya está registrado"
+        )
+    
+    # 2. Hashear password e insertar
+    h_password = get_password_hash(user_in.password)
+    
+    try:
+        db.execute(
+            text("INSERT INTO usuarios (email, password_hash) VALUES (:email, :pw)"),
+            {"email": user_in.email, "pw": h_password}
+        )
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Error al crear usuario")
+
+    return {"message": "Usuario creado exitosamente"}
