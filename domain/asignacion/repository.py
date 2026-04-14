@@ -36,6 +36,8 @@ class AsignacionRepositoryProtocol(Protocol):
     ) -> Asignacion: ...
 
     def eliminar(self, asignacion: Asignacion) -> None: ...
+    
+    def crear_muchos(self, objetos: list[Asignacion]) -> None: ...
 
 
 class AsignacionRepository:
@@ -97,6 +99,10 @@ class AsignacionRepository:
             asignacion.cantidad_abarcado = cantidad_abarcado
         self.db.flush()
         return asignacion
+
+    def crear_muchos(self, objetos: list[Asignacion]) -> None:
+        self.db.add_all(objetos)
+        self.db.flush()
 
     def eliminar(self, asignacion: Asignacion) -> None:
         """

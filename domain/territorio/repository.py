@@ -147,3 +147,7 @@ class TerritorioRepository:
             )
             for row in rows
         ]
+        
+    # En backend/domain/territorio/repository.py
+    def obtener_todos_con_metadata(self) -> list[Territorio]:
+        return self.session.query(Territorio).all()

@@ -18,6 +18,7 @@ from domain.asignacion.schema import (
 )
 from domain.conductor.repository import ConductorRepository
 from domain.territorio.repository import TerritorioRepository
+from domain.asignacion.schema import AgendaConfirmar
 
 router = APIRouter(prefix="/asignaciones", tags=["asignaciones"])
 
@@ -89,3 +90,19 @@ def eliminar_asignacion(
         404: asignación no encontrada.
     """
     return service.eliminar_asignacion(asignacion_id)
+
+@router.post(
+    "/confirmar-agenda",
+    status_code=201,
+    summary="Confirmar e impactar la agenda quincenal en la base de datos",
+)
+def confirmar_agenda(
+    data: AgendaConfirmar,
+    service: AsignacionService = Depends(get_asignacion_service),
+    _: CurrentUser = Depends(require_admin),
+):
+    """
+    Recibe la propuesta de agenda del frontend y la persiste en Supabase.
+    Operación atómica: usa una sola transacción para todos los registros.
+    """
+    return service.confirmar_agenda_masiva(data)

@@ -99,3 +99,12 @@ class AsignacionDeletedOut(BaseModel):
     """Respuesta de confirmación tras DELETE /asignaciones/{id}."""
     message: str
     asignacion_id: int
+
+class ItemAgendaConfirmar(BaseModel):
+    territorio_id: int
+    fecha_asignado: date
+    turno: str  # "AM" o "PM"
+
+class AgendaConfirmar(BaseModel):
+    items: list[ItemAgendaConfirmar]
+    conductor_default: str = "Sin Asignar" # Por si el usuario no eligió conductores todavía

@@ -15,6 +15,8 @@ from domain.asignacion.schema import (
 )
 from domain.conductor.repository import ConductorRepositoryProtocol
 from domain.territorio.repository import TerritorioRepositoryProtocol
+from domain.asignacion.schema import AgendaConfirmar
+from domain.asignacion.model import Asignacion
 
 
 class AsignacionService:
@@ -111,6 +113,43 @@ class AsignacionService:
             message="Asignación actualizada correctamente",
             asignacion_id=asignacion_id,
         )
+        
+    # Agregar a AsignacionService
+
+    def confirmar_agenda_masiva(self, data: AgendaConfirmar) -> dict:
+        try:
+            # 1. Resolvemos el conductor por defecto (o podrías pedir uno por item)
+            conductor, _ = self.conductor_repo.obtener_o_crear(data.conductor_default)
+
+            nuevas_asignaciones = []
+
+            for item in data.items:
+                nueva = Asignacion(
+                    territorio_id=item.territorio_id,
+                    conductor_id=conductor.id,
+                    fecha_asignado=item.fecha_asignado,
+                    cantidad_abarcado=f"Turno {item.turno}" # Guardamos el turno en la descripción
+                )
+                nuevas_asignaciones.append(nueva)
+
+            # 2. Inserción masiva
+            self.asignacion_repo.crear_muchos(nuevas_asignaciones)
+
+            # 3. COMMIT ÚNICO: Si uno falla, no se guarda ninguno
+            self.db.commit()
+
+            return {
+                "status": "success",
+                "message": f"Se han registrado {len(nuevas_asignaciones)} nuevas asignaciones.",
+                "proximas_fechas": [a.fecha_asignado for a in nuevas_asignaciones]
+            }
+
+        except Exception as e:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Error crítico al confirmar agenda: {str(e)}"
+            )
 
     # ── NUEVO: Eliminar ──────────────────────────────────────────────────────
     def eliminar_asignacion(self, asignacion_id: int) -> AsignacionDeletedOut:

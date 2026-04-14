@@ -8,7 +8,7 @@ Agrega relationship() hacia Asignaciones para permitir joins ORM cuando sea nece
 sin romper la independencia del dominio (es una referencia lazy, no carga nada por defecto).
 """
 
-from sqlalchemy import Column, Integer
+from sqlalchemy import Column, Integer, Boolean, Date
 from sqlalchemy.orm import relationship
 from core.database import Base
 
@@ -18,6 +18,12 @@ class Territorio(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     numero = Column(Integer, unique=True, nullable=False, index=True)
+    
+
+    zona = Column(Integer, nullable=False, default=1) # 1, 2 o 3
+    permite_am = Column(Boolean, default=True)
+    permite_pm = Column(Boolean, default=True)
+    ultima_fecha_completado = Column(Date, nullable=True)
 
     # Relación inversa — no genera query hasta que se acceda explícitamente
     asignaciones = relationship(

@@ -21,7 +21,7 @@ Reemplaza:
 """
 
 from datetime import date
-from time import time
+from time import time, timedelta
 from fastapi import HTTPException
 
 from domain.territorio.repository import TerritorioRepositoryProtocol
@@ -150,3 +150,82 @@ class TerritorioService:
 
         _CACHE[cache_key] = (resultado, now)
         return resultado
+    
+    def _get_offset(self, dia_nombre: str) -> int:
+        dias = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado"]
+        return dias.index(dia_nombre)
+
+    def _valida_restricciones(self, t, dia_nombre: str, turno: str) -> bool:
+        # Sábado es "libre" según tu doc
+        if dia_nombre == "sabado":
+            return True
+        
+        # Filtro de turno
+        if turno == "AM" and not t.permite_am:
+            return False
+        if turno == "PM" and not t.permite_pm:
+            return False
+        
+        # Filtro de Zona 3 (Solo sábados)
+        if t.zona == 3:
+            return False
+            
+        return True
+
+    @staticmethod
+    def calcular_score(territorio, fecha_planificada: date) -> float:
+        if territorio.ultima_fecha_completado:
+            dias_desde = (fecha_planificada - territorio.ultima_fecha_completado).days
+        else:
+            dias_desde = 999
+        
+        bono_zona = 15 if territorio.zona == 1 else 0
+        return (dias_desde * 1.2) + bono_zona
+
+    # --- El Motor Principal ---
+
+    def generar_plan_quincenal(self, fecha_inicio: date):
+        # 1. FETCH ($O(n)$): Una sola query para los 60-100 territorios
+        territorios = self.repo.obtener_todos_con_metadata()
+        plan = []
+        usados_en_esta_quincena = set()
+
+        dias_laborales = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado"]
+        
+        for semana in [0, 1]:
+            for dia_nombre in dias_laborales:
+                # Lunes solo PM, Miércoles solo AM (según tu esquema v3.0)
+                if dia_nombre == "lunes": turnos = ["PM"]
+                elif dia_nombre == "miercoles": turnos = ["AM"]
+                else: turnos = ["AM", "PM"]
+                
+                for turno in turnos:
+                    fecha_slot = fecha_inicio + timedelta(days=(semana * 7) + self._get_offset(dia_nombre))
+                    
+                    # 2. FILTRADO ($O(n)$): Usamos el SET para búsqueda O(1)
+                    candidatos = [
+                        t for t in territorios 
+                        if t.id not in usados_en_esta_quincena
+                        and self._valida_restricciones(t, dia_nombre, turno)
+                    ]
+
+                    # 3. ASIGNACIÓN
+                    if candidatos:
+                        # Ordenamiento O(n log n)
+                        candidatos.sort(
+                            key=lambda x: self.calcular_score(x, fecha_slot), 
+                            reverse=True
+                        )
+                        
+                        elegido = candidatos[0]
+                        plan.append({
+                            "fecha": fecha_slot,
+                            "turno": turno,
+                            "territorio_id": elegido.id,
+                            "numero": elegido.numero,
+                            "zona": elegido.zona
+                        })
+                        # Marcamos como usado para evitar repetición en las 2 semanas
+                        usados_en_esta_quincena.add(elegido.id)
+        
+        return plan
