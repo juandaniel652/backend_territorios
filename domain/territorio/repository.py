@@ -74,7 +74,7 @@ class TerritorioRepository:
     """
 
     def __init__(self, db: Session) -> None:
-        self.db = db
+        self.session = db
 
     def obtener_por_numero(self, numero: int) -> Territorio | None:
         return (
