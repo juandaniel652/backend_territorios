@@ -118,24 +118,22 @@ class AsignacionService:
 
     def confirmar_agenda_masiva(self, data: AgendaConfirmar) -> dict:
         try:
-            # 1. Resolvemos el conductor por defecto (o podrías pedir uno por item)
-            conductor, _ = self.conductor_repo.obtener_o_crear(data.conductor_default)
-
             nuevas_asignaciones = []
 
             for item in data.items:
+                # 1. Resolvemos cada conductor individualmente (ya no usamos default)
+                conductor, _ = self.conductor_repo.obtener_o_crear(item.conductor)
+
                 nueva = Asignacion(
                     territorio_id=item.territorio_id,
                     conductor_id=conductor.id,
                     fecha_asignado=item.fecha_asignado,
-                    cantidad_abarcado=f"Turno {item.turno}" # Guardamos el turno en la descripción
+                    # Guardamos el Encuentro + Turno en la descripción
+                    cantidad_abarcado=f"{item.encuentro} (Turno {item.turno})" 
                 )
                 nuevas_asignaciones.append(nueva)
 
-            # 2. Inserción masiva
             self.asignacion_repo.crear_muchos(nuevas_asignaciones)
-
-            # 3. COMMIT ÚNICO: Si uno falla, no se guarda ninguno
             self.db.commit()
 
             return {

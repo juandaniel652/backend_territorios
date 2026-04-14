@@ -96,3 +96,6 @@ class ConductorRepository:
 
         nuevo = self.crear(nombre)
         return nuevo, True
+    
+    def obtener_todos_los_nombres(self) -> list[str]:
+        return [c.nombre_completo for c in self.db.query(Conductor.nombre_completo).all()]

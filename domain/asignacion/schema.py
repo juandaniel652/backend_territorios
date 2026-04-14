@@ -105,6 +105,8 @@ class ItemAgendaConfirmar(BaseModel):
     territorio_id: int
     fecha_asignado: date
     turno: str  # "AM" o "PM"
+    conductor: str  
+    encuentro: str
 
 
 class AgendaConfirmar(BaseModel):
