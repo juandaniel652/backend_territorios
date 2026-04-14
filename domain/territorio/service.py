@@ -185,7 +185,10 @@ class TerritorioService:
     # --- El Motor Principal ---
 
     def generar_plan_quincenal(self, fecha_inicio: date):
-        # 1. FETCH ($O(n)$): Una sola query para los 60-100 territorios
+        # FUERZA EL LUNES: Si llega miércoles 15, esto lo convierte en lunes 13
+        # weekday() devuelve 0 para lunes, 2 para miércoles.
+        fecha_lunes = fecha_inicio - timedelta(days=fecha_inicio.weekday())
+        
         territorios = self.repo.obtener_todos_con_metadata()
         plan = []
         usados_en_esta_quincena = set()
@@ -194,24 +197,21 @@ class TerritorioService:
         
         for semana in [0, 1]:
             for dia_nombre in dias_laborales:
-                # Lunes solo PM, Miércoles solo AM (según tu esquema v3.0)
                 if dia_nombre == "lunes": turnos = ["PM"]
                 elif dia_nombre == "miercoles": turnos = ["AM"]
                 else: turnos = ["AM", "PM"]
                 
                 for turno in turnos:
-                    fecha_slot = fecha_inicio + timedelta(days=(semana * 7) + self._get_offset(dia_nombre))
+                    # USAMOS fecha_lunes como base absoluta
+                    fecha_slot = fecha_lunes + timedelta(days=(semana * 7) + self._get_offset(dia_nombre))
                     
-                    # 2. FILTRADO ($O(n)$): Usamos el SET para búsqueda O(1)
                     candidatos = [
                         t for t in territorios 
                         if t.id not in usados_en_esta_quincena
                         and self._valida_restricciones(t, dia_nombre, turno)
                     ]
 
-                    # 3. ASIGNACIÓN
                     if candidatos:
-                        # Ordenamiento O(n log n)
                         candidatos.sort(
                             key=lambda x: self.calcular_score(x, fecha_slot), 
                             reverse=True
@@ -225,7 +225,6 @@ class TerritorioService:
                             "numero": elegido.numero,
                             "zona": elegido.zona
                         })
-                        # Marcamos como usado para evitar repetición en las 2 semanas
                         usados_en_esta_quincena.add(elegido.id)
         
         return plan
