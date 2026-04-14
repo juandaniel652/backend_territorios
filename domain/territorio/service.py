@@ -20,8 +20,8 @@ Reemplaza:
   - Cache en-memoria de sugerir_territorios.py (ahora encapsulado aquí)
 """
 
-from datetime import date
-from time import time, timedelta
+from datetime import date, timedelta
+from time import time
 from fastapi import HTTPException
 
 from domain.territorio.repository import TerritorioRepositoryProtocol
