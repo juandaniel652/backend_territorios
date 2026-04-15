@@ -62,3 +62,10 @@ class SugerenciasOut(BaseModel):
     total: int
     sugerencias: list[SugerenciaTerritorio]
     cache: bool = False
+    
+class AgendaItemIn(BaseModel):
+    numero_territorio: int
+    fecha_asignado: date
+    turno: str
+    conductor: str
+    encuentro: str

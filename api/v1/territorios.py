@@ -15,14 +15,19 @@ Reemplaza:
   - El router completo de sugerir_territorios.py con SQL inline y cache acoplado
 """
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
+from domain.territorio.model import Territorio
+from domain.asignacion.model import Asignacion
 
+from domain.territorio.schema import AgendaItemIn
 from core.database import get_db
 from domain.territorio.repository import TerritorioRepository
 from domain.territorio.service import TerritorioService
 from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOut
 from datetime import date
+from typing import List
+from domain.territorio.schema import AsignacionCreate
 
 router = APIRouter(prefix="/territorios", tags=["territorios"])
 
@@ -77,3 +82,35 @@ def obtener_historial(
     service: TerritorioService = Depends(get_territorio_service),
 ):
     return service.obtener_historial(numero)
+
+@router.post("/confirmar-agenda", status_code=201)
+def confirmar_agenda(
+    plan: List[AgendaItemIn], # <-- Cambiamos dict por el Schema
+    db: Session = Depends(get_db)
+):
+    try:
+        for item in plan:
+            # 1. Buscar el territorio por número (el que viene del input editable)
+            territorio = db.query(Territorio).filter(Territorio.numero == item.numero_territorio).first()
+            
+            if territorio:
+                # 2. Crear la asignación 
+                # OJO: Verificá si en tu modelo Asignacion el campo es 'conductor_id' o 'conductor_nombre'
+                nueva_asig = Asignacion(
+                    territorio_id=territorio.id,
+                    conductor_id=None, # Si guardas por nombre, podés dejarlo en None o buscar el ID
+                    # Aquí asumo que agregaste un campo o usas el nombre directamente:
+                    fecha_asignado=item.fecha_asignado,
+                    turno=item.turno,
+                    lugar_encuentro=item.encuentro,
+                    # Si tu tabla asignaciones tiene un campo para el nombre del conductor temporal:
+                    observaciones=f"Conductor: {item.conductor}" 
+                )
+                db.add(nueva_asig)
+        
+        db.commit()
+        return {"status": "success", "message": "Agenda archivada correctamente"}
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Error en confirmar_agenda: {str(e)}") # Log para Render
+        raise HTTPException(status_code=500, detail=str(e))
