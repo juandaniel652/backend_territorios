@@ -74,7 +74,7 @@ class TerritorioRepository:
     """
 
     def __init__(self, db: Session) -> None:
-        self.session = db
+        self.db = db
 
     def obtener_por_numero(self, numero: int) -> Territorio | None:
         return (
@@ -150,4 +150,4 @@ class TerritorioRepository:
         
     # En backend/domain/territorio/repository.py
     def obtener_todos_con_metadata(self) -> list[Territorio]:
-        return self.session.query(Territorio).all()
+        return self.db.query(Territorio).all()
