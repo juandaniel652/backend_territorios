@@ -20,14 +20,14 @@ from sqlalchemy.orm import Session
 from domain.territorio.model import Territorio
 from domain.asignacion.model import Asignacion
 
-from domain.territorio.schema import AgendaItemIn
+from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOut, AgendaItemIn
 from core.database import get_db
 from domain.territorio.repository import TerritorioRepository
 from domain.territorio.service import TerritorioService
 from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOut
 from datetime import date
 from typing import List
-from domain.territorio.schema import AsignacionCreate
+
 
 router = APIRouter(prefix="/territorios", tags=["territorios"])
 
