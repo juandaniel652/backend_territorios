@@ -90,42 +90,43 @@ def confirmar_agenda(
 ):
     try:
         for item in plan:
-            # 1. Buscar el territorio
-            territorio = db.query(Territorio).filter(Territorio.numero == item.numero_territorio).first()
-            if not territorio:
-                continue
-
-            # 2. Lógica del Conductor (Relación Dinámica)
-            # Buscamos si el nombre ya existe en la tabla conductores
-            nombre_conductor = item.conductor.strip()
-            conductor = db.query(Conductor).filter(Conductor.nombre_completo == nombre_conductor).first()
+            # 1. GESTIÓN DE CONDUCTOR: Buscar o crear por nombre único
+            nombre_limpio = item.conductor.strip()
+            if not nombre_limpio:
+                nombre_limpio = "Sin Asignar"
+            
+            conductor = db.query(Conductor).filter(Conductor.nombre_completo == nombre_limpio).first()
             
             if not conductor:
-                # Si no existe, lo creamos para tener un ID válido
-                conductor = Conductor(nombre_completo=nombre_conductor)
+                conductor = Conductor(nombre_completo=nombre_limpio)
                 db.add(conductor)
-                db.flush() # Para obtener el ID antes del commit final
+                db.flush() # Obtenemos el ID para la relación
 
-            # 3. Crear la asignación
+            # 2. BÚSQUEDA DE TERRITORIO
+            territorio = db.query(Territorio).filter(Territorio.numero == item.numero_territorio).first()
+            if not territorio:
+                print(f"⚠️ Territorio {item.numero_territorio} no existe. Saltando...")
+                continue
+
+            # 3. CREAR ASIGNACIÓN (Usando las nuevas columnas de la DB)
             nueva_asig = Asignacion(
                 territorio_id=territorio.id,
-                conductor_id=conductor.id, # Ahora tenemos un ID real
+                conductor_id=conductor.id,
                 fecha_asignado=item.fecha_asignado,
-                # lugar_encuentro e item.encuentro: 
-                # OJO: Tu tabla 'asignaciones' NO tiene columna 'lugar_encuentro' ni 'turno'.
-                # Vamos a guardarlo en 'cantidad_abarcado' o 'observaciones' temporalmente 
-                # para no romper la DB, o deberías agregar esas columnas a la tabla.
-                cantidad_abarcado=f"Turno: {item.turno} | Encuentro: {item.encuentro}"
+                turno=item.turno,
+                lugar_encuentro=item.encuentro,
+                cantidad_abarcado=None # Se llenará cuando se complete
             )
             db.add(nueva_asig)
 
-            # 4. ACTUALIZACIÓN CLAVE: Sincronizar con la tabla territorios
-            # Esto hace que el T-13 desaparezca de las sugerencias la próxima vez
-            territorio.ultima_fecha_completado = item.fecha_asignado 
+            # 4. 🔥 SINCRONIZACIÓN CLAVE: Actualizar la 'Verdad' del territorio
+            # Esto hará que el T-13 tenga fecha de HOY y pierda prioridad en el Score
+            territorio.ultima_fecha_completado = item.fecha_asignado
         
         db.commit()
-        return {"status": "success", "message": "Agenda guardada y territorios actualizados"}
+        return {"status": "success", "message": "Agenda archivada y territorios actualizados"}
+    
     except Exception as e:
         db.rollback()
-        print(f"❌ Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"❌ Error crítico: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al procesar: {str(e)}")

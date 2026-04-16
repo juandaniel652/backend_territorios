@@ -149,5 +149,6 @@ class TerritorioRepository:
         ]
         
     # En backend/domain/territorio/repository.py
-    def obtener_todos_con_metadata(self) -> list[Territorio]:
+    def obtener_todos_con_metadata(self):
+        # Traemos todos los territorios ordenados por número o como prefieras
         return self.db.query(Territorio).all()
