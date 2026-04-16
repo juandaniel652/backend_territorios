@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from domain.territorio.model import Territorio
 from domain.asignacion.model import Asignacion
-
+from domain.conductor.model import Conductor
 from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOut, AgendaItemIn
 from core.database import get_db
 from domain.territorio.repository import TerritorioRepository
@@ -85,32 +85,47 @@ def obtener_historial(
 
 @router.post("/confirmar-agenda", status_code=201)
 def confirmar_agenda(
-    plan: List[AgendaItemIn], # <-- Cambiamos dict por el Schema
+    plan: List[AgendaItemIn], 
     db: Session = Depends(get_db)
 ):
     try:
         for item in plan:
-            # 1. Buscar el territorio por número (el que viene del input editable)
+            # 1. Buscar el territorio
             territorio = db.query(Territorio).filter(Territorio.numero == item.numero_territorio).first()
+            if not territorio:
+                continue
+
+            # 2. Lógica del Conductor (Relación Dinámica)
+            # Buscamos si el nombre ya existe en la tabla conductores
+            nombre_conductor = item.conductor.strip()
+            conductor = db.query(Conductor).filter(Conductor.nombre_completo == nombre_conductor).first()
             
-            if territorio:
-                # 2. Crear la asignación 
-                # OJO: Verificá si en tu modelo Asignacion el campo es 'conductor_id' o 'conductor_nombre'
-                nueva_asig = Asignacion(
-                    territorio_id=territorio.id,
-                    conductor_id=None, # Si guardas por nombre, podés dejarlo en None o buscar el ID
-                    # Aquí asumo que agregaste un campo o usas el nombre directamente:
-                    fecha_asignado=item.fecha_asignado,
-                    turno=item.turno,
-                    lugar_encuentro=item.encuentro,
-                    # Si tu tabla asignaciones tiene un campo para el nombre del conductor temporal:
-                    observaciones=f"Conductor: {item.conductor}" 
-                )
-                db.add(nueva_asig)
+            if not conductor:
+                # Si no existe, lo creamos para tener un ID válido
+                conductor = Conductor(nombre_completo=nombre_conductor)
+                db.add(conductor)
+                db.flush() # Para obtener el ID antes del commit final
+
+            # 3. Crear la asignación
+            nueva_asig = Asignacion(
+                territorio_id=territorio.id,
+                conductor_id=conductor.id, # Ahora tenemos un ID real
+                fecha_asignado=item.fecha_asignado,
+                # lugar_encuentro e item.encuentro: 
+                # OJO: Tu tabla 'asignaciones' NO tiene columna 'lugar_encuentro' ni 'turno'.
+                # Vamos a guardarlo en 'cantidad_abarcado' o 'observaciones' temporalmente 
+                # para no romper la DB, o deberías agregar esas columnas a la tabla.
+                cantidad_abarcado=f"Turno: {item.turno} | Encuentro: {item.encuentro}"
+            )
+            db.add(nueva_asig)
+
+            # 4. ACTUALIZACIÓN CLAVE: Sincronizar con la tabla territorios
+            # Esto hace que el T-13 desaparezca de las sugerencias la próxima vez
+            territorio.ultima_fecha_completado = item.fecha_asignado 
         
         db.commit()
-        return {"status": "success", "message": "Agenda archivada correctamente"}
+        return {"status": "success", "message": "Agenda guardada y territorios actualizados"}
     except Exception as e:
         db.rollback()
-        print(f"❌ Error en confirmar_agenda: {str(e)}") # Log para Render
+        print(f"❌ Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
