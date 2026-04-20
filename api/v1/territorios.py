@@ -109,8 +109,8 @@ def confirmar_agenda(
                 territorio_id=t.id,
                 conductor_id=conductor.id,
                 fecha_asignado=item.fecha_asignado,
-                fecha_completado=None, # Se llena cuando se termina el territorio
-                cantidad_abarcado=f"Turno: {item.turno} | Encuentro: {item.encuentro}"
+                # Usamos el campo cantidad_abarcado para guardar metadata útil
+                cantidad_abarcado=f"Turno: {item.turno} | Punto: {item.encuentro}"
             )
             db.add(nueva_asig)
 
