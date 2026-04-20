@@ -112,38 +112,32 @@ class TerritorioRepository:
 
         return [AsignacionDeTerritorioOut(**row) for row in rows]
 
-    def obtener_sugerencias(
-        self, desde: int, hasta: int, limit: int
-    ) -> list[SugerenciaTerritorio]:
-        """
-        Reemplaza la query inline de sugerir_territorios.py.
-        El cálculo de severidad vive en el servicio, no aquí:
-        el repositorio solo trae datos, no interpreta negocio.
-        """
+    # Dentro de TerritorioRepository en domain/territorio/repository.py
+
+    def obtener_sugerencias(self, desde: int, hasta: int, limit: int) -> list[SugerenciaTerritorio]:
+        # Usamos COALESCE para que si la fecha es NULL (nunca se hizo), 
+        # se comporte como una fecha muy vieja.
         sql = text("""
             SELECT
-                t.numero,
-                MAX(a.fecha_completado) AS ultima_fecha
-            FROM territorios t
-            LEFT JOIN asignaciones a ON a.territorio_id = t.id
-            WHERE t.numero BETWEEN :desde AND :hasta
-            GROUP BY t.numero
-            ORDER BY
-                MAX(a.fecha_completado) IS NOT NULL,
-                MAX(a.fecha_completado) ASC
+                numero,
+                ultima_fecha_completado AS ultima_fecha
+            FROM territorios
+            WHERE numero BETWEEN :desde AND :hasta
+            ORDER BY 
+                ultima_fecha_completado ASC NULLS FIRST
             LIMIT :limit
         """)
-
+    
         rows = self.db.execute(
             sql, {"desde": desde, "hasta": hasta, "limit": limit}
         ).mappings().all()
-
+    
         return [
             SugerenciaTerritorio(
                 numero=row["numero"],
                 ultima_fecha=row["ultima_fecha"],
-                dias_atraso=None,   # calculado en el servicio
-                severidad="",       # calculado en el servicio
+                dias_atraso=None,
+                severidad="",
             )
             for row in rows
         ]
