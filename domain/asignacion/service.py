@@ -23,6 +23,8 @@ from domain.asignacion.model import Asignacion
 from domain.salida.repository import SalidaRepository
 from domain.salida.model import Salida
 
+from domain.asignacion.response_builder import AgendaResponseBuilder
+
 
 class AsignacionService:
 
@@ -130,20 +132,27 @@ class AsignacionService:
     # Agregar a AsignacionService
 
     def confirmar_agenda_masiva(self, data: AgendaConfirmar) -> dict:
-
         resultado = self.resolver_agenda(data.items)
     
-        creables = resultado["creables"]
+        ok = resultado["ok"]
     
-        self.db.add_all([c["asignacion"] for c in creables])
-        self.db.add_all([c["salida"] for c in creables])
-    
+        self.db.add_all([c["asignacion"] for c in ok])
+        self.db.add_all([c["salida"] for c in ok])
         self.db.commit()
     
-        return {
-            "status": "partial_success",
-            **resultado
-        }
+        return AgendaResponseBuilder.build(
+            status="partial_success",
+            items_ok=[
+                {
+                    "territorio_id": c["asignacion"].territorio_id,
+                    "fecha": c["asignacion"].fecha_asignado.isoformat(),
+                    "turno": c["salida"].turno,
+                }
+                for c in ok
+            ],
+            items_fail=resultado["fail"],
+            meta=resultado["meta"],
+        )
     
     # ── Agenda ofrece inteligentemente horario ─────────────────────────────────────────────────────
     
@@ -269,9 +278,15 @@ class AsignacionService:
 
         claves = [(i.territorio_id, i.fecha_asignado, i.turno) for i in data.items]
 
-        existentes = self.db.query(Salida).filter(
-            tuple_(Salida.territorio_id, Salida.fecha, Salida.turno).in_(claves)
-        ).all()
+        filtros = [
+            and_(
+                Salida.territorio_id == i.territorio_id,
+                Salida.fecha == i.fecha_asignado,
+                Salida.turno == i.turno
+            )
+            for i in data.items
+        ]
+        existentes = self.db.query(Salida).filter(or_(*filtros)).all()
 
         conflict_map = {
             (e.territorio_id, e.fecha, e.turno)
@@ -361,7 +376,7 @@ class AsignacionService:
             if key in conflictos_set:
                 rechazadas.append({
                     "territorio_id": item.territorio_id,
-                    "fecha": item.fecha_asignado,
+                    "fecha": item.fecha_asignado.isoformat(),
                     "turno": item.turno,
                     "motivo": "ocupado_en_db"
                 })
@@ -403,12 +418,12 @@ class AsignacionService:
             })
 
         return {
-            "creables": creables,
-            "rechazadas": rechazadas,
-            "resumen": {
+            "ok": creables,
+            "fail": rechazadas,
+            "meta": {
                 "total": len(items),
-                "creables": len(creables),
-                "rechazadas": len(rechazadas)
+                "ok": len(creables),
+                "fail": len(rechazadas)
             }
         }
 
@@ -416,11 +431,24 @@ class AsignacionService:
     def preview_agenda(self, data: AgendaConfirmar) -> dict:
         resultado = self.resolver_agenda(data.items)
 
-        return {
-            "status": "preview",
-            **resultado
-        }
+        items_ok = [
+            {
+                "territorio_id": c["asignacion"].territorio_id,
+                "fecha": c["asignacion"].fecha_asignado.isoformat(),
+                "turno": c["salida"].turno,
+            }
+            for c in resultado["ok"]
+        ]
 
+        items_fail = resultado["fail"]
+
+        return AgendaResponseBuilder.build(
+            status="preview",
+            items_ok=items_ok,
+            items_fail=items_fail,
+            meta=resultado["meta"],
+        )
+        
     # ── Eliminar ──────────────────────────────────────────────────────
     def eliminar_asignacion(self, asignacion_id: int) -> AsignacionDeletedOut:
         """
