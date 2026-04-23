@@ -3,9 +3,9 @@ domain/asignacion/service.py
 """
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, tuple_
 
 
 from domain.asignacion.repository import AsignacionRepositoryProtocol
@@ -133,13 +133,13 @@ class AsignacionService:
         try:
             # ── 1. Duplicados internos ──
             claves = [(i.territorio_id, i.fecha_asignado, i.turno) for i in data.items]
-    
+
             if len(claves) != len(set(claves)):
                 raise HTTPException(
                     status_code=400,
                     detail="Hay duplicados dentro del mismo envío"
                 )
-    
+
             # ── 2. Precargar conflictos DB (optimizado) ──
             filtros = [
                 and_(
@@ -149,24 +149,24 @@ class AsignacionService:
                 )
                 for i in data.items
             ]
-    
+
             existentes = self.db.query(Salida).filter(or_(*filtros)).all()
-    
+
             conflict_map = {
                 (e.territorio_id, e.fecha, e.turno)
                 for e in existentes
             }
-    
+
             nuevas_asignaciones = []
             nuevas_salidas = []
             rechazadas = []
             creadas = []
-    
+
             # ── 3. Procesamiento item por item ──
             for item in data.items:
-            
+
                 key = (item.territorio_id, item.fecha_asignado, item.turno)
-    
+
                 # conflicto DB
                 if key in conflict_map:
                     rechazadas.append({
@@ -176,21 +176,21 @@ class AsignacionService:
                         "motivo": "duplicado_en_db"
                     })
                     continue
-                
+
                 conductor, _ = self.conductor_repo.obtener_o_crear(item.conductor)
                 territorio = self.territorio_repo.obtener_por_id(item.territorio_id)
-    
+
                 if not territorio:
                     rechazadas.append({
                         "territorio_id": item.territorio_id,
                         "motivo": "territorio_no_existe"
                     })
                     continue
-                
+
                 visitas = self.asignacion_repo.contar_completadas(territorio.id)
                 planilla = visitas // 5 + 1
                 fila = visitas % 5 + 1
-    
+
                 asignacion = Asignacion(
                     territorio_id=territorio.id,
                     conductor_id=conductor.id,
@@ -199,40 +199,40 @@ class AsignacionService:
                     planilla_ciclo=planilla,
                     fila=fila,
                 )
-    
+
                 salida = Salida(
                     territorio_id=territorio.id,
                     conductor_id=conductor.id,
                     fecha=item.fecha_asignado,
                     turno=item.turno,
                 )
-    
+
                 nuevas_asignaciones.append(asignacion)
                 nuevas_salidas.append(salida)
-    
+
                 territorio.ultima_fecha_completado = item.fecha_asignado
-    
+
                 creadas.append({
                     "territorio_id": item.territorio_id,
                     "fecha": item.fecha_asignado.isoformat(),
                     "turno": item.turno
                 })
-    
+
             # ── 4. Persistencia única ──
             self.db.add_all(nuevas_asignaciones)
             self.db.add_all(nuevas_salidas)
             self.db.commit()
-    
+
             return {
                 "status": "partial_success" if rechazadas else "success",
                 "creadas": creadas,
                 "rechazadas": rechazadas
             }
-    
+
         except HTTPException:
             self.db.rollback()
             raise
-        
+
         except Exception as e:
             self.db.rollback()
             raise HTTPException(
@@ -264,6 +264,7 @@ class AsignacionService:
 
         return None
     
+    #Uso de gestor inteligente
     
     def confirmar_agenda_inteligente(self, data: AgendaConfirmar) -> dict:
         try:
@@ -354,7 +355,64 @@ class AsignacionService:
         except Exception as e:
             self.db.rollback()
             raise HTTPException(500, str(e))
-    
+
+    # ── Muestra Preview Agenda para su vista en backend─────────────────────────────────────────────────────
+
+    def preview_agenda(self, data: AgendaConfirmar) -> dict:
+        creadas = []
+        rechazadas = []
+
+        claves = [(i.territorio_id, i.fecha_asignado, i.turno) for i in data.items]
+
+        existentes = self.db.query(Salida).filter(
+            tuple_(Salida.territorio_id, Salida.fecha, Salida.turno).in_(claves)
+        ).all()
+
+        conflict_map = {
+            (e.territorio_id, e.fecha, e.turno)
+            for e in existentes
+        }
+
+        for item in data.items:
+
+            key = (item.territorio_id, item.fecha_asignado, item.turno)
+
+            if key in conflict_map:
+                rechazadas.append({
+                    "territorio_id": item.territorio_id,
+                    "fecha": item.fecha_asignado.isoformat(),
+                    "turno": item.turno,
+                    "motivo": "ocupado_en_db"
+                })
+                continue
+
+            territorio = self.territorio_repo.obtener_por_id(item.territorio_id)
+
+            if not territorio:
+                rechazadas.append({
+                    "territorio_id": item.territorio_id,
+                    "motivo": "no_existe"
+                })
+                continue
+
+            creadas.append({
+                "territorio_id": item.territorio_id,
+                "fecha": item.fecha_asignado.isoformat(),
+                "turno": item.turno,
+                "estado": "disponible"
+            })
+
+        return {
+            "status": "preview",
+            "creadas": creadas,
+            "rechazadas": rechazadas,
+            "resumen": {
+                "total": len(data.items),
+                "disponibles": len(creadas),
+                "ocupadas": len(rechazadas)
+            }
+        }
+
     # ── Eliminar ──────────────────────────────────────────────────────
     def eliminar_asignacion(self, asignacion_id: int) -> AsignacionDeletedOut:
         """

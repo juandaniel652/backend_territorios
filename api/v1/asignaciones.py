@@ -102,3 +102,7 @@ def confirmar_agenda(
     _: CurrentUser = Depends(require_admin),
 ):
     return service.confirmar_agenda_masiva(data)
+
+@router.post("/asignaciones/preview-agenda")
+def preview_agenda(data: AgendaConfirmar, service: AsignacionService = Depends(...)):
+    return service.preview_agenda(data)
