@@ -133,18 +133,18 @@ class AsignacionService:
         try:
             # ── 1. Detectar duplicados en el request ──
             claves = [(i.territorio_id, i.fecha_asignado, i.turno) for i in data.items]
-    
+
             if len(claves) != len(set(claves)):
                 raise HTTPException(
                     status_code=400,
                     detail="Hay duplicados dentro del mismo envío"
                 )
-    
+
             # ── 2. Detectar conflictos en DB ──
             existentes = self.db.query(Salida).filter(
                 tuple_(Salida.territorio_id, Salida.fecha, Salida.turno).in_(claves)
             ).all()
-    
+
             if existentes:
                 conflictos = [
                     {
@@ -154,7 +154,7 @@ class AsignacionService:
                     }
                     for e in existentes
                 ]
-    
+
                 raise HTTPException(
                     status_code=400,
                     detail={
@@ -162,24 +162,55 @@ class AsignacionService:
                         "conflictos": conflictos
                     }
                 )
-    
+
             nuevas_asignaciones = []
             nuevas_salidas = []
-    
+            
+            # ── 3. Detectar territorios repetidos en el período ──
+
+            territorios_ids = [i.territorio_id for i in data.items]
+            
+            fechas = [i.fecha_asignado for i in data.items]
+            fecha_min = min(fechas)
+            fecha_max = max(fechas)
+            
+            existentes_periodo = self.db.query(Salida).filter(
+                Salida.territorio_id.in_(territorios_ids),
+                Salida.fecha >= fecha_min,
+                Salida.fecha <= fecha_max
+            ).all()
+            
+            if existentes_periodo:
+                conflictos = [
+                    {
+                        "territorio_id": e.territorio_id,
+                        "fecha": e.fecha
+                    }
+                    for e in existentes_periodo
+                ]
+            
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "Territorios ya asignados en este período",
+                        "conflictos": conflictos
+                    }
+                )
+
             for item in data.items:
                 # ── Conductor ──
                 conductor, _ = self.conductor_repo.obtener_o_crear(item.conductor)
-    
+
                 # ── Territorio ──
                 territorio = self.territorio_repo.obtener_por_id(item.territorio_id)
                 if not territorio:
                     continue
-                
+
                 # ── Planilla ──
                 visitas = self.asignacion_repo.contar_completadas(territorio.id)
                 planilla = visitas // 5 + 1
                 fila = visitas % 5 + 1
-    
+
                 # ── Asignación ──
                 asignacion = Asignacion(
                     territorio_id=territorio.id,
@@ -190,7 +221,7 @@ class AsignacionService:
                     fila=fila,
                 )
                 nuevas_asignaciones.append(asignacion)
-    
+
                 # ── Salida (CORREGIDO) ──
                 salida = Salida(
                     territorio_id=territorio.id,
@@ -199,14 +230,14 @@ class AsignacionService:
                     turno=item.turno,
                 )
                 nuevas_salidas.append(salida)
-    
+
                 # ── Sync motor ──
                 territorio.ultima_fecha_completado = item.fecha_asignado
-    
+
             # ── Persistencia ──
             self.db.add_all(nuevas_asignaciones)
             self.db.add_all(nuevas_salidas)
-    
+
             try:
                 self.db.commit()
             except IntegrityError:
@@ -215,13 +246,13 @@ class AsignacionService:
                     status_code=400,
                     detail="Conflicto detectado al guardar (duplicado en DB)"
                 )
-    
+
             return {
                 "status": "success",
                 "asignaciones": len(nuevas_asignaciones),
                 "salidas": len(nuevas_salidas),
             }
-    
+
         except HTTPException:
             self.db.rollback()
             raise
