@@ -94,17 +94,8 @@ def eliminar_asignacion(
     """
     return service.eliminar_asignacion(asignacion_id)
 
-@router.post(
-    "/confirmar-agenda",
-    status_code=201,
-    summary="Confirmar e impactar la agenda quincenal en la base de datos",
-)
 
-@router.post(
-    "/confirmar-agenda",
-    status_code=201,
-    summary="Confirmar e impactar la agenda quincenal en la base de datos",
-)
+@router.post("/confirmar-agenda")
 def confirmar_agenda(
     data: AgendaConfirmar,
     service: AsignacionService = Depends(get_asignacion_service),
