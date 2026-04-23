@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Date, ForeignKey
+from sqlalchemy import Column, Integer, Date, ForeignKey, String
 from sqlalchemy.orm import relationship
 from core.database import Base
 
@@ -9,5 +9,6 @@ class Salida(Base):
     territorio_id = Column(Integer, ForeignKey("territorios.id"))
     conductor_id = Column(Integer, ForeignKey("conductores.id"), nullable=True)
     fecha = Column(Date, nullable=False)
+    turno = Column(String, nullable=False)
     territorio = relationship("Territorio")
     conductor = relationship("Conductor")

@@ -4,6 +4,7 @@ domain/asignacion/service.py
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import tuple_
 
 from domain.asignacion.repository import AsignacionRepositoryProtocol
 from domain.asignacion.schema import (
@@ -128,23 +129,35 @@ class AsignacionService:
 
     def confirmar_agenda_masiva(self, data: AgendaConfirmar) -> dict:
         try:
+            
+            claves = [(i.territorio_id, i.fecha_asignado, i.turno) for i in data.items]
+
+            existentes = self.db.query(Salida).filter(
+                tuple_(Salida.territorio_id, Salida.fecha, Salida.turno).in_(claves)
+            ).all()
+
+            if existentes:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Ya existe salida para territorio {item.territorio_id} en {item.fecha_asignado} {item.turno}"
+                )
             nuevas_asignaciones = []
             nuevas_salidas = []
-    
+
             for item in data.items:
                 # 1. Conductor
                 conductor, _ = self.conductor_repo.obtener_o_crear(item.conductor)
-    
+
                 # 2. Territorio (importante validar)
                 territorio = self.territorio_repo.obtener_por_id(item.territorio_id)
                 if not territorio:
                     continue
-                
+
                 # 3. Calcular planilla automáticamente
                 visitas = self.asignacion_repo.contar_completadas(territorio.id)
                 planilla = visitas // 5 + 1
                 fila = visitas % 5 + 1
-    
+
                 # 4. Crear asignación
                 asignacion = Asignacion(
                     territorio_id=territorio.id,
@@ -155,7 +168,7 @@ class AsignacionService:
                     fila=fila,
                 )
                 nuevas_asignaciones.append(asignacion)
-    
+
                 # 5. Crear salida
                 salida = Salida(
                     territorio_id=territorio.id,
@@ -163,22 +176,22 @@ class AsignacionService:
                     fecha=item.fecha_asignado,
                 )
                 nuevas_salidas.append(salida)
-    
+
                 # 6. Actualizar territorio (CLAVE para el motor)
                 territorio.ultima_fecha_completado = item.fecha_asignado
-    
+
             # 7. Persistir TODO junto (transacción única)
             self.db.add_all(nuevas_asignaciones)
             self.db.add_all(nuevas_salidas)
-    
+
             self.db.commit()
-    
+
             return {
                 "status": "success",
                 "asignaciones": len(nuevas_asignaciones),
                 "salidas": len(nuevas_salidas),
             }
-    
+
         except Exception as e:
             self.db.rollback()
             raise HTTPException(
