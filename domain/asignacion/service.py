@@ -163,7 +163,7 @@ class AsignacionService:
                 conflictos = [
                     {
                         "territorio_id": e.territorio_id,
-                        "fecha": e.fecha,
+                        "fecha": e.fecha.isoformat(),
                         "turno": e.turno
                     }
                     for e in existentes
@@ -198,7 +198,7 @@ class AsignacionService:
                 conflictos = [
                     {
                         "territorio_id": e.territorio_id,
-                        "fecha": e.fecha
+                        "fecha": e.fecha.isoformat(),
                     }
                     for e in existentes_periodo
                 ]
