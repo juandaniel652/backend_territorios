@@ -130,115 +130,20 @@ class AsignacionService:
     # Agregar a AsignacionService
 
     def confirmar_agenda_masiva(self, data: AgendaConfirmar) -> dict:
-        try:
-            # ── 1. Duplicados internos ──
-            claves = [(i.territorio_id, i.fecha_asignado, i.turno) for i in data.items]
 
-            if len(claves) != len(set(claves)):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Hay duplicados dentro del mismo envío"
-                )
-
-            # ── 2. Precargar conflictos DB (optimizado) ──
-            filtros = [
-                and_(
-                    Salida.territorio_id == i.territorio_id,
-                    Salida.fecha == i.fecha_asignado,
-                    Salida.turno == i.turno
-                )
-                for i in data.items
-            ]
-
-            existentes = self.db.query(Salida).filter(or_(*filtros)).all()
-
-            conflict_map = {
-                (e.territorio_id, e.fecha, e.turno)
-                for e in existentes
-            }
-
-            nuevas_asignaciones = []
-            nuevas_salidas = []
-            rechazadas = []
-            creadas = []
-
-            # ── 3. Procesamiento item por item ──
-            for item in data.items:
-
-                key = (item.territorio_id, item.fecha_asignado, item.turno)
-
-                # conflicto DB
-                if key in conflict_map:
-                    rechazadas.append({
-                        "territorio_id": item.territorio_id,
-                        "fecha": item.fecha_asignado.isoformat(),
-                        "turno": item.turno,
-                        "motivo": "duplicado_en_db"
-                    })
-                    continue
-
-                conductor, _ = self.conductor_repo.obtener_o_crear(item.conductor)
-                territorio = self.territorio_repo.obtener_por_id(item.territorio_id)
-
-                if not territorio:
-                    rechazadas.append({
-                        "territorio_id": item.territorio_id,
-                        "motivo": "territorio_no_existe"
-                    })
-                    continue
-
-                visitas = self.asignacion_repo.contar_completadas(territorio.id)
-                planilla = visitas // 5 + 1
-                fila = visitas % 5 + 1
-
-                asignacion = Asignacion(
-                    territorio_id=territorio.id,
-                    conductor_id=conductor.id,
-                    fecha_asignado=item.fecha_asignado,
-                    cantidad_abarcado=f"Turno: {item.turno} | Punto: {item.encuentro}",
-                    planilla_ciclo=planilla,
-                    fila=fila,
-                )
-
-                salida = Salida(
-                    territorio_id=territorio.id,
-                    conductor_id=conductor.id,
-                    fecha=item.fecha_asignado,
-                    turno=item.turno,
-                )
-
-                nuevas_asignaciones.append(asignacion)
-                nuevas_salidas.append(salida)
-
-                territorio.ultima_fecha_completado = item.fecha_asignado
-
-                creadas.append({
-                    "territorio_id": item.territorio_id,
-                    "fecha": item.fecha_asignado.isoformat(),
-                    "turno": item.turno
-                })
-
-            # ── 4. Persistencia única ──
-            self.db.add_all(nuevas_asignaciones)
-            self.db.add_all(nuevas_salidas)
-            self.db.commit()
-
-            return {
-                "status": "partial_success" if rechazadas else "success",
-                "creadas": creadas,
-                "rechazadas": rechazadas
-            }
-
-        except HTTPException:
-            self.db.rollback()
-            raise
-
-        except Exception as e:
-            self.db.rollback()
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error al confirmar agenda: {str(e)}"
-        )
+        resultado = self.resolver_agenda(data.items)
+    
+        creables = resultado["creables"]
+    
+        self.db.add_all([c["asignacion"] for c in creables])
+        self.db.add_all([c["salida"] for c in creables])
+    
+        self.db.commit()
+    
+        return {
+            "status": "partial_success",
+            **resultado
+        }
     
     # ── Agenda ofrece inteligentemente horario ─────────────────────────────────────────────────────
     
@@ -411,6 +316,109 @@ class AsignacionService:
                 "disponibles": len(creadas),
                 "ocupadas": len(rechazadas)
             }
+        }
+
+
+    def resolver_agenda(self, items):
+
+        creables = []
+        rechazadas = []
+
+        # ── 1. duplicados internos ──
+        claves = [
+            (i.territorio_id, i.fecha_asignado, i.turno)
+            for i in items
+        ]
+
+        if len(claves) != len(set(claves)):
+            raise HTTPException(
+                status_code=400,
+                detail="Hay duplicados dentro del mismo envío"
+            )
+
+        # ── 2. conflictos en DB ──
+        filtros = [
+            and_(
+                Salida.territorio_id == i.territorio_id,
+                Salida.fecha == i.fecha_asignado,
+                Salida.turno == i.turno
+            )
+            for i in items
+        ]
+
+        existentes = self.db.query(Salida).filter(or_(*filtros)).all()
+
+        conflictos_set = {
+            (e.territorio_id, e.fecha, e.turno)
+            for e in existentes
+        }
+
+        # ── 3. procesar items ──
+        for item in items:
+
+            key = (item.territorio_id, item.fecha_asignado, item.turno)
+
+            if key in conflictos_set:
+                rechazadas.append({
+                    "territorio_id": item.territorio_id,
+                    "fecha": item.fecha_asignado,
+                    "turno": item.turno,
+                    "motivo": "ocupado_en_db"
+                })
+                continue
+
+            territorio = self.territorio_repo.obtener_por_id(item.territorio_id)
+            if not territorio:
+                rechazadas.append({
+                    "territorio_id": item.territorio_id,
+                    "motivo": "territorio_invalido"
+                })
+                continue
+
+            conductor, _ = self.conductor_repo.obtener_o_crear(item.conductor)
+
+            visitas = self.asignacion_repo.contar_completadas(territorio.id)
+            planilla = visitas // 5 + 1
+            fila = visitas % 5 + 1
+
+            asignacion = Asignacion(
+                territorio_id=territorio.id,
+                conductor_id=conductor.id,
+                fecha_asignado=item.fecha_asignado,
+                cantidad_abarcado=f"Turno: {item.turno} | Punto: {item.encuentro}",
+                planilla_ciclo=planilla,
+                fila=fila,
+            )
+
+            salida = Salida(
+                territorio_id=territorio.id,
+                conductor_id=conductor.id,
+                fecha=item.fecha_asignado,
+                turno=item.turno,
+            )
+
+            creables.append({
+                "asignacion": asignacion,
+                "salida": salida
+            })
+
+        return {
+            "creables": creables,
+            "rechazadas": rechazadas,
+            "resumen": {
+                "total": len(items),
+                "creables": len(creables),
+                "rechazadas": len(rechazadas)
+            }
+        }
+
+
+    def preview_agenda(self, data: AgendaConfirmar) -> dict:
+        resultado = self.resolver_agenda(data.items)
+
+        return {
+            "status": "preview",
+            **resultado
         }
 
     # ── Eliminar ──────────────────────────────────────────────────────
