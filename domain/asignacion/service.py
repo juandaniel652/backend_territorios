@@ -5,7 +5,7 @@ domain/asignacion/service.py
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import tuple_
+from sqlalchemy import and_, or_
 
 
 from domain.asignacion.repository import AsignacionRepositoryProtocol
@@ -141,9 +141,17 @@ class AsignacionService:
                 )
 
             # ── 2. Detectar conflictos en DB ──
-            existentes = self.db.query(Salida).filter(
-                tuple_(Salida.territorio_id, Salida.fecha, Salida.turno).in_(claves)
-            ).all()
+            
+            filtros = [
+                and_(
+                    Salida.territorio_id == i.territorio_id,
+                    Salida.fecha == i.fecha_asignado,
+                    Salida.turno == i.turno
+                )
+                for i in data.items
+            ]
+            
+            existentes = self.db.query(Salida).filter(or_(*filtros)).all()
 
             if existentes:
                 conflictos = [
@@ -169,17 +177,17 @@ class AsignacionService:
             # ── 3. Detectar territorios repetidos en el período ──
 
             territorios_ids = [i.territorio_id for i in data.items]
-            
+
             fechas = [i.fecha_asignado for i in data.items]
             fecha_min = min(fechas)
             fecha_max = max(fechas)
-            
+
             existentes_periodo = self.db.query(Salida).filter(
                 Salida.territorio_id.in_(territorios_ids),
                 Salida.fecha >= fecha_min,
                 Salida.fecha <= fecha_max
             ).all()
-            
+
             if existentes_periodo:
                 conflictos = [
                     {
@@ -188,7 +196,7 @@ class AsignacionService:
                     }
                     for e in existentes_periodo
                 ]
-            
+
                 raise HTTPException(
                     status_code=400,
                     detail={
