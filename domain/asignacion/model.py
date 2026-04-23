@@ -26,6 +26,9 @@ class Asignacion(Base):
     fecha_asignado   = Column(Date, nullable=True)
     fecha_completado = Column(Date, nullable=True)
     cantidad_abarcado = Column(String, nullable=True)
+    
+    planilla_ciclo = Column(Integer, nullable=True)
+    fila = Column(Integer, nullable=True)
 
     # ── Relationships ────────────────────────────────────────────────────────
     # Permiten acceder a obj.territorio y obj.conductor sin queries adicionales
