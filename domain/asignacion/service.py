@@ -131,17 +131,16 @@ class AsignacionService:
 
     def confirmar_agenda_masiva(self, data: AgendaConfirmar) -> dict:
         try:
-            # ── 1. Detectar duplicados en el request ──
+            # ── 1. Duplicados internos ──
             claves = [(i.territorio_id, i.fecha_asignado, i.turno) for i in data.items]
-
+    
             if len(claves) != len(set(claves)):
                 raise HTTPException(
                     status_code=400,
                     detail="Hay duplicados dentro del mismo envío"
                 )
-
-            # ── 2. Detectar conflictos en DB ──
-            
+    
+            # ── 2. Precargar conflictos DB (optimizado) ──
             filtros = [
                 and_(
                     Salida.territorio_id == i.territorio_id,
@@ -150,82 +149,48 @@ class AsignacionService:
                 )
                 for i in data.items
             ]
-            
-            if not filtros:
-                raise HTTPException(
-                    status_code=400,
-                    detail="No se enviaron datos válidos"
-                )
-
+    
             existentes = self.db.query(Salida).filter(or_(*filtros)).all()
-
-            if existentes:
-                conflictos = [
-                    {
-                        "territorio_id": e.territorio_id,
-                        "fecha": e.fecha.isoformat(),
-                        "turno": e.turno
-                    }
-                    for e in existentes
-                ]
-
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error": "Conflictos detectados",
-                        "conflictos": conflictos
-                    }
-                )
-
+    
+            conflict_map = {
+                (e.territorio_id, e.fecha, e.turno)
+                for e in existentes
+            }
+    
             nuevas_asignaciones = []
             nuevas_salidas = []
-            
-            # ── 3. Detectar territorios repetidos en el período ──
-
-            territorios_ids = [i.territorio_id for i in data.items]
-
-            fechas = [i.fecha_asignado for i in data.items]
-            fecha_min = min(fechas)
-            fecha_max = max(fechas)
-
-            existentes_periodo = self.db.query(Salida).filter(
-                Salida.territorio_id.in_(territorios_ids),
-                Salida.fecha >= fecha_min,
-                Salida.fecha <= fecha_max
-            ).all()
-
-            if existentes_periodo:
-                conflictos = [
-                    {
-                        "territorio_id": e.territorio_id,
-                        "fecha": e.fecha.isoformat(),
-                    }
-                    for e in existentes_periodo
-                ]
-
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error": "Territorios ya asignados en este período",
-                        "conflictos": conflictos
-                    }
-                )
-
+            rechazadas = []
+            creadas = []
+    
+            # ── 3. Procesamiento item por item ──
             for item in data.items:
-                # ── Conductor ──
-                conductor, _ = self.conductor_repo.obtener_o_crear(item.conductor)
-
-                # ── Territorio ──
-                territorio = self.territorio_repo.obtener_por_id(item.territorio_id)
-                if not territorio:
+            
+                key = (item.territorio_id, item.fecha_asignado, item.turno)
+    
+                # conflicto DB
+                if key in conflict_map:
+                    rechazadas.append({
+                        "territorio_id": item.territorio_id,
+                        "fecha": item.fecha_asignado.isoformat(),
+                        "turno": item.turno,
+                        "motivo": "duplicado_en_db"
+                    })
                     continue
-
-                # ── Planilla ──
+                
+                conductor, _ = self.conductor_repo.obtener_o_crear(item.conductor)
+                territorio = self.territorio_repo.obtener_por_id(item.territorio_id)
+    
+                if not territorio:
+                    rechazadas.append({
+                        "territorio_id": item.territorio_id,
+                        "motivo": "territorio_no_existe"
+                    })
+                    continue
+                
                 visitas = self.asignacion_repo.contar_completadas(territorio.id)
                 planilla = visitas // 5 + 1
                 fila = visitas % 5 + 1
-
-                # ── Asignación ──
+    
                 asignacion = Asignacion(
                     territorio_id=territorio.id,
                     conductor_id=conductor.id,
@@ -234,52 +199,163 @@ class AsignacionService:
                     planilla_ciclo=planilla,
                     fila=fila,
                 )
-                nuevas_asignaciones.append(asignacion)
-
-                # ── Salida (CORREGIDO) ──
+    
                 salida = Salida(
                     territorio_id=territorio.id,
                     conductor_id=conductor.id,
                     fecha=item.fecha_asignado,
                     turno=item.turno,
                 )
+    
+                nuevas_asignaciones.append(asignacion)
+                nuevas_salidas.append(salida)
+    
+                territorio.ultima_fecha_completado = item.fecha_asignado
+    
+                creadas.append({
+                    "territorio_id": item.territorio_id,
+                    "fecha": item.fecha_asignado.isoformat(),
+                    "turno": item.turno
+                })
+    
+            # ── 4. Persistencia única ──
+            self.db.add_all(nuevas_asignaciones)
+            self.db.add_all(nuevas_salidas)
+            self.db.commit()
+    
+            return {
+                "status": "partial_success" if rechazadas else "success",
+                "creadas": creadas,
+                "rechazadas": rechazadas
+            }
+    
+        except HTTPException:
+            self.db.rollback()
+            raise
+        
+        except Exception as e:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error al confirmar agenda: {str(e)}"
+        )
+    
+    # ── Agenda ofrece inteligentemente horario ─────────────────────────────────────────────────────
+    
+    def buscar_alternativa(self, item, territorios_usados, fecha_min, fecha_max):
+        
+        candidatos = self.db.query(self.territorio_repo.model).filter(
+            self.territorio_repo.model.zona == item.zona,
+            ~self.territorio_repo.model.id.in_(territorios_usados)
+        ).order_by(
+            self.territorio_repo.model.ultima_fecha_completado.asc()
+        ).all()
+
+        for t in candidatos:
+
+            conflicto = self.db.query(Salida).filter(
+                Salida.territorio_id == t.id,
+                Salida.fecha >= fecha_min,
+                Salida.fecha <= fecha_max
+            ).first()
+
+            if not conflicto:
+                return t
+
+        return None
+    
+    
+    def confirmar_agenda_inteligente(self, data: AgendaConfirmar) -> dict:
+        try:
+            nuevas_asignaciones = []
+            nuevas_salidas = []
+            reemplazos = []
+
+            territorios_usados = set()
+
+            fechas = [i.fecha_asignado for i in data.items]
+            fecha_min = min(fechas)
+            fecha_max = max(fechas)
+
+            for item in data.items:
+
+                conflicto = self.db.query(Salida).filter(
+                    Salida.territorio_id == item.territorio_id,
+                    Salida.fecha == item.fecha_asignado,
+                    Salida.turno == item.turno
+                ).first()
+
+                territorio_final = item.territorio_id
+
+                if conflicto:
+                    alternativa = self.buscar_alternativa(
+                        item,
+                        territorios_usados,
+                        fecha_min,
+                        fecha_max
+                    )
+
+                    if alternativa:
+                        reemplazos.append({
+                            "territorio_original": item.territorio_id,
+                            "territorio_nuevo": alternativa.id,
+                            "fecha": item.fecha_asignado.isoformat(),
+                            "turno": item.turno
+                        })
+
+                        territorio_final = alternativa.id
+                    else:
+                        continue  # o lo marcás como conflicto
+
+                territorios_usados.add(territorio_final)
+
+                # conductor
+                conductor, _ = self.conductor_repo.obtener_o_crear(item.conductor)
+
+                # territorio
+                territorio = self.territorio_repo.obtener_por_id(territorio_final)
+
+                visitas = self.asignacion_repo.contar_completadas(territorio.id)
+                planilla = visitas // 5 + 1
+                fila = visitas % 5 + 1
+
+                asignacion = Asignacion(
+                    territorio_id=territorio.id,
+                    conductor_id=conductor.id,
+                    fecha_asignado=item.fecha_asignado,
+                    cantidad_abarcado=f"Turno: {item.turno} | Punto: {item.encuentro}",
+                    planilla_ciclo=planilla,
+                    fila=fila,
+                )
+
+                salida = Salida(
+                    territorio_id=territorio.id,
+                    conductor_id=conductor.id,
+                    fecha=item.fecha_asignado,
+                    turno=item.turno,
+                )
+
+                nuevas_asignaciones.append(asignacion)
                 nuevas_salidas.append(salida)
 
-                # ── Sync motor ──
                 territorio.ultima_fecha_completado = item.fecha_asignado
 
-            # ── Persistencia ──
-            #self.db.add_all(nuevas_asignaciones)
-            #self.db.add_all(nuevas_salidas)
-
-            try:
-                self.db.add_all(nuevas_asignaciones)
-                self.db.add_all(nuevas_salidas)
-                self.db.commit()
-            except IntegrityError:
-                self.db.rollback()
-                raise HTTPException(
-                    status_code=400,
-                    detail="Conflicto detectado al guardar (duplicado en DB)"
-                )
+            self.db.add_all(nuevas_asignaciones)
+            self.db.add_all(nuevas_salidas)
+            self.db.commit()
 
             return {
                 "status": "success",
                 "asignaciones": len(nuevas_asignaciones),
                 "salidas": len(nuevas_salidas),
+                "reemplazos": reemplazos
             }
 
-        except HTTPException:
-            self.db.rollback()
-            raise
         except Exception as e:
             self.db.rollback()
-            raise HTTPException(
-                status_code=500,
-                detail=f"DEBUG: {str(e)}"
-        )
+            raise HTTPException(500, str(e))
     
-    # ── NUEVO: Eliminar ──────────────────────────────────────────────────────
+    # ── Eliminar ──────────────────────────────────────────────────────
     def eliminar_asignacion(self, asignacion_id: int) -> AsignacionDeletedOut:
         """
         Elimina permanentemente una asignación.
@@ -310,3 +386,5 @@ class AsignacionService:
             message="Asignación eliminada correctamente",
             asignacion_id=asignacion_id,
         )
+        
+        
