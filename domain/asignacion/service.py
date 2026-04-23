@@ -17,6 +17,8 @@ from domain.conductor.repository import ConductorRepositoryProtocol
 from domain.territorio.repository import TerritorioRepositoryProtocol
 from domain.asignacion.schema import AgendaConfirmar
 from domain.asignacion.model import Asignacion
+from domain.salida.repository import SalidaRepository
+from domain.salida.model import Salida
 
 
 class AsignacionService:
@@ -27,21 +29,29 @@ class AsignacionService:
         asignacion_repo: AsignacionRepositoryProtocol,
         territorio_repo: TerritorioRepositoryProtocol,
         conductor_repo: ConductorRepositoryProtocol,
+        salida_repo: SalidaRepository,
     ) -> None:
         self.db = db
         self.asignacion_repo = asignacion_repo
         self.territorio_repo = territorio_repo
         self.conductor_repo  = conductor_repo
+        self.salida_repo = salida_repo
 
-    # ── Crear (sin cambios) ──────────────────────────────────────────────────
     def crear_asignacion(self, data: AsignacionCreate) -> AsignacionCreatedOut:
         try:
             territorio = self.territorio_repo.obtener_por_numero(data.numero_territorio)
+
             if not territorio:
                 raise HTTPException(
                     status_code=404,
                     detail=f"Territorio {data.numero_territorio} no encontrado",
                 )
+
+            # ✔️ ahora sí existe territorio
+            visitas = self.asignacion_repo.contar_completadas(territorio.id)
+
+            planilla = visitas // 5 + 1
+            fila = visitas % 5 + 1
 
             conductor, conductor_creado = self.conductor_repo.obtener_o_crear(data.conductor)
 
@@ -51,15 +61,15 @@ class AsignacionService:
                 fecha_asignado=data.fecha_asignado,
                 fecha_completado=data.fecha_completado,
                 cantidad_abarcado=data.cantidad_abarcado,
+                planilla_ciclo=planilla,
+                fila=fila
             )
+
             self.db.commit()
 
-        except HTTPException:
-            self.db.rollback()
-            raise
         except Exception as e:
             self.db.rollback()
-            raise HTTPException(status_code=500, detail=f"Error al crear la asignación: {str(e)}") from e
+            raise HTTPException(500, f"Error al crear la asignación: {str(e)}")
 
         return AsignacionCreatedOut(
             message="Asignación creada correctamente",
@@ -119,36 +129,63 @@ class AsignacionService:
     def confirmar_agenda_masiva(self, data: AgendaConfirmar) -> dict:
         try:
             nuevas_asignaciones = []
-
+            nuevas_salidas = []
+    
             for item in data.items:
-                # 1. Resolvemos cada conductor individualmente (ya no usamos default)
+                # 1. Conductor
                 conductor, _ = self.conductor_repo.obtener_o_crear(item.conductor)
-
-                nueva = Asignacion(
-                    territorio_id=item.territorio_id,
+    
+                # 2. Territorio (importante validar)
+                territorio = self.territorio_repo.obtener_por_id(item.territorio_id)
+                if not territorio:
+                    continue
+                
+                # 3. Calcular planilla automáticamente
+                visitas = self.asignacion_repo.contar_completadas(territorio.id)
+                planilla = visitas // 5 + 1
+                fila = visitas % 5 + 1
+    
+                # 4. Crear asignación
+                asignacion = Asignacion(
+                    territorio_id=territorio.id,
                     conductor_id=conductor.id,
                     fecha_asignado=item.fecha_asignado,
-                    # Guardamos el Encuentro + Turno en la descripción
-                    cantidad_abarcado=f"{item.encuentro} (Turno {item.turno})" 
+                    cantidad_abarcado=f"Turno: {item.turno} | Punto: {item.encuentro}",
+                    planilla_ciclo=planilla,
+                    fila=fila,
                 )
-                nuevas_asignaciones.append(nueva)
-
-            self.asignacion_repo.crear_muchos(nuevas_asignaciones)
+                nuevas_asignaciones.append(asignacion)
+    
+                # 5. Crear salida
+                salida = Salida(
+                    territorio_id=territorio.id,
+                    conductor_id=conductor.id,
+                    fecha=item.fecha_asignado,
+                )
+                nuevas_salidas.append(salida)
+    
+                # 6. Actualizar territorio (CLAVE para el motor)
+                territorio.ultima_fecha_completado = item.fecha_asignado
+    
+            # 7. Persistir TODO junto (transacción única)
+            self.db.add_all(nuevas_asignaciones)
+            self.db.add_all(nuevas_salidas)
+    
             self.db.commit()
-
+    
             return {
                 "status": "success",
-                "message": f"Se han registrado {len(nuevas_asignaciones)} nuevas asignaciones.",
-                "proximas_fechas": [a.fecha_asignado for a in nuevas_asignaciones]
+                "asignaciones": len(nuevas_asignaciones),
+                "salidas": len(nuevas_salidas),
             }
-
+    
         except Exception as e:
             self.db.rollback()
             raise HTTPException(
-                status_code=500, 
-                detail=f"Error crítico al confirmar agenda: {str(e)}"
-            )
-
+                status_code=500,
+                detail=f"Error al confirmar agenda: {str(e)}"
+        )
+    
     # ── NUEVO: Eliminar ──────────────────────────────────────────────────────
     def eliminar_asignacion(self, asignacion_id: int) -> AsignacionDeletedOut:
         """

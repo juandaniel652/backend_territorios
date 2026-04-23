@@ -29,6 +29,7 @@ from datetime import date
 from typing import List
 
 
+
 router = APIRouter(prefix="/territorios", tags=["territorios"])
 
 
@@ -83,43 +84,10 @@ def obtener_historial(
 ):
     return service.obtener_historial(numero)
 
-@router.post("/confirmar-agenda", status_code=201)
-def confirmar_agenda(
-    plan: list[AgendaItemIn], 
-    db: Session = Depends(get_db)
+    
+@router.get("/plan-quincenal")
+def plan_quincenal(
+    fecha_inicio: date,
+    service: TerritorioService = Depends(get_territorio_service)
 ):
-    from domain.conductor.model import Conductor # Import local para evitar círculos
-    try:
-        for item in plan:
-            # 1. Obtener o crear Conductor
-            nombre = item.conductor.strip() or "Sin Asignar"
-            conductor = db.query(Conductor).filter(Conductor.nombre_completo == nombre).first()
-            if not conductor:
-                conductor = Conductor(nombre_completo=nombre)
-                db.add(conductor)
-                db.flush()
-
-            # 2. Obtener Territorio
-            t = db.query(Territorio).filter(Territorio.numero == item.numero_territorio).first()
-            if not t: continue
-
-            # 3. Crear Asignación (Guardamos turno y encuentro en 'cantidad_abarcado' 
-            # hasta que actualices las columnas de la DB, o usá las columnas si ya las creaste)
-            nueva_asig = Asignacion(
-                territorio_id=t.id,
-                conductor_id=conductor.id,
-                fecha_asignado=item.fecha_asignado,
-                # Usamos el campo cantidad_abarcado para guardar metadata útil
-                cantidad_abarcado=f"Turno: {item.turno} | Punto: {item.encuentro}"
-            )
-            db.add(nueva_asig)
-
-            # 4. 🔥 SINCRONIZACIÓN: Actualizamos el territorio
-            # Esto es lo que lee el service.py para el Score
-            t.ultima_fecha_completado = item.fecha_asignado
-        
-        db.commit()
-        return {"status": "success", "message": "Agenda sincronizada"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+    return service.generar_plan_quincenal(fecha_inicio)

@@ -52,6 +52,8 @@ class AsignacionRepository:
         fecha_asignado: date,
         fecha_completado: Optional[date],
         cantidad_abarcado: str,
+        planilla_ciclo: int,
+        fila: int,
     ) -> Asignacion:
         asignacion = Asignacion(
             territorio_id=territorio_id,
@@ -59,10 +61,18 @@ class AsignacionRepository:
             fecha_asignado=fecha_asignado,
             fecha_completado=fecha_completado,
             cantidad_abarcado=cantidad_abarcado,
+            planilla_ciclo=planilla_ciclo,
+            fila=fila,
         )
         self.db.add(asignacion)
         self.db.flush()
         return asignacion
+    
+    def contar_completadas(self, territorio_id: int) -> int:
+        return self.db.query(Asignacion).filter(
+            Asignacion.territorio_id == territorio_id,
+            Asignacion.fecha_completado.isnot(None)
+        ).count()
 
     def obtener_por_id(self, asignacion_id: int) -> Asignacion | None:
         return self.db.get(Asignacion, asignacion_id)
