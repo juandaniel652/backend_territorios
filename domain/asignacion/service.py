@@ -151,6 +151,12 @@ class AsignacionService:
                 for i in data.items
             ]
             
+            if not filtros:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No se enviaron datos válidos"
+                )
+
             existentes = self.db.query(Salida).filter(or_(*filtros)).all()
 
             if existentes:
@@ -243,10 +249,12 @@ class AsignacionService:
                 territorio.ultima_fecha_completado = item.fecha_asignado
 
             # ── Persistencia ──
-            self.db.add_all(nuevas_asignaciones)
-            self.db.add_all(nuevas_salidas)
+            #self.db.add_all(nuevas_asignaciones)
+            #self.db.add_all(nuevas_salidas)
 
             try:
+                self.db.add_all(nuevas_asignaciones)
+                self.db.add_all(nuevas_salidas)
                 self.db.commit()
             except IntegrityError:
                 self.db.rollback()
@@ -268,7 +276,7 @@ class AsignacionService:
             self.db.rollback()
             raise HTTPException(
                 status_code=500,
-                detail=f"Error al confirmar agenda: {str(e)}"
+                detail=f"DEBUG: {str(e)}"
         )
     
     # ── NUEVO: Eliminar ──────────────────────────────────────────────────────
