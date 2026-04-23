@@ -22,6 +22,7 @@ from domain.asignacion.schema import AgendaConfirmar
 from domain.salida.repository import SalidaRepository
 from domain.asignacion.schema import AgendaConfirmar
 
+
 router = APIRouter(prefix="/asignaciones", tags=["asignaciones"])
 
 
@@ -103,6 +104,10 @@ def confirmar_agenda(
 ):
     return service.confirmar_agenda_masiva(data)
 
-@router.post("/asignaciones/preview-agenda")
-def preview_agenda(data: AgendaConfirmar, service: AsignacionService = Depends(...)):
+@router.post("/preview-agenda")
+def preview_agenda(
+    data: AgendaConfirmar,
+    service: AsignacionService = Depends(get_asignacion_service),
+    _: CurrentUser = Depends(require_admin),
+):
     return service.preview_agenda(data)
