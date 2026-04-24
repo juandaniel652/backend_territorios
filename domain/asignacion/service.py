@@ -133,16 +133,16 @@ class AsignacionService:
 
     def confirmar_agenda_masiva(self, data: AgendaConfirmar) -> dict:
         resultado = self.resolver_agenda(data.items)
-    
+
         ok = resultado["ok"]
-    
+
         self.db.add_all([c["asignacion"] for c in ok])
         self.db.add_all([c["salida"] for c in ok])
         self.db.commit()
-    
+
         return AgendaResponseBuilder.build(
             status="partial_success",
-            items_ok=[
+            ok=[
                 {
                     "territorio_id": c["asignacion"].territorio_id,
                     "fecha": c["asignacion"].fecha_asignado.isoformat(),
@@ -150,7 +150,7 @@ class AsignacionService:
                 }
                 for c in ok
             ],
-            items_fail=resultado["fail"],
+            fail=resultado["fail"],
             meta=resultado["meta"],
         )
     
@@ -276,7 +276,7 @@ class AsignacionService:
         creadas = []
         rechazadas = []
 
-        claves = [(i.territorio_id, i.fecha_asignado, i.turno) for i in data.items]
+        #claves = [(i.territorio_id, i.fecha_asignado, i.turno) for i in data.items]
 
         filtros = [
             and_(
@@ -431,7 +431,7 @@ class AsignacionService:
     def preview_agenda(self, data: AgendaConfirmar) -> dict:
         resultado = self.resolver_agenda(data.items)
 
-        items_ok = [
+        ok = [
             {
                 "territorio_id": c["asignacion"].territorio_id,
                 "fecha": c["asignacion"].fecha_asignado.isoformat(),
@@ -440,12 +440,12 @@ class AsignacionService:
             for c in resultado["ok"]
         ]
 
-        items_fail = resultado["fail"]
+        fail = resultado["fail"]
 
         return AgendaResponseBuilder.build(
             status="preview",
-            items_ok=items_ok,
-            items_fail=items_fail,
+            ok=ok,
+            fail=fail,
             meta=resultado["meta"],
         )
         
