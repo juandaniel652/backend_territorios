@@ -10,5 +10,9 @@ class Salida(Base):
     conductor_id = Column(Integer, ForeignKey("conductores.id"), nullable=True)
     fecha = Column(Date, nullable=False)
     turno = Column(String, nullable=False)
+    
+    # AGREGAMOS ESTO:
+    punto_encuentro = Column(String, nullable=True) 
+
     territorio = relationship("Territorio")
     conductor = relationship("Conductor")

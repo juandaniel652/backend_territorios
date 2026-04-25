@@ -182,10 +182,8 @@ class AsignacionService:
     
     def confirmar_agenda_inteligente(self, data: AgendaConfirmar) -> dict:
         try:
-            nuevas_asignaciones = []
             nuevas_salidas = []
             reemplazos = []
-
             territorios_usados = set()
 
             fechas = [i.fecha_asignado for i in data.items]
@@ -193,7 +191,7 @@ class AsignacionService:
             fecha_max = max(fechas)
 
             for item in data.items:
-
+                # Verificar si ya existe una salida programada para ese lugar/fecha/turno
                 conflicto = self.db.query(Salida).filter(
                     Salida.territorio_id == item.territorio_id,
                     Salida.fecha == item.fecha_asignado,
@@ -202,6 +200,7 @@ class AsignacionService:
 
                 territorio_final = item.territorio_id
 
+                # Si hay conflicto, el gestor inteligente busca otro territorio libre
                 if conflicto:
                     alternativa = self.buscar_alternativa(
                         item,
@@ -217,59 +216,40 @@ class AsignacionService:
                             "fecha": item.fecha_asignado.isoformat(),
                             "turno": item.turno
                         })
-
                         territorio_final = alternativa.id
                     else:
-                        continue  # o lo marcás como conflicto
+                        continue  # Saltear si no hay alternativa disponible
 
                 territorios_usados.add(territorio_final)
 
-                # conductor
+                # Resolver conductor por nombre
                 conductor, _ = self.conductor_repo.obtener_o_crear(item.conductor)
 
-                # territorio
-                territorio = self.territorio_repo.obtener_por_id(territorio_final)
-
-                visitas = self.asignacion_repo.contar_completadas(territorio.id)
-                planilla = visitas // 5 + 1
-                fila = visitas % 5 + 1
-
-                asignacion = Asignacion(
-                    territorio_id=territorio.id,
-                    conductor_id=conductor.id,
-                    fecha_asignado=item.fecha_asignado,
-                    cantidad_abarcado=f"Turno: {item.turno} | Punto: {item.encuentro}",
-                    planilla_ciclo=planilla,
-                    fila=fila,
-                )
-
+                # GUARDAR SOLO EN SALIDAS (Este es tu cronograma)
                 salida = Salida(
-                    territorio_id=territorio.id,
+                    territorio_id=territorio_final,
                     conductor_id=conductor.id,
                     fecha=item.fecha_asignado,
                     turno=item.turno,
+                    punto_encuentro=item.encuentro
                 )
-
-                nuevas_asignaciones.append(asignacion)
+                
                 nuevas_salidas.append(salida)
 
-                territorio.ultima_fecha_completado = item.fecha_asignado
-
-            self.db.add_all(nuevas_asignaciones)
+            # Persistir solo las salidas programadas
             self.db.add_all(nuevas_salidas)
             self.db.commit()
 
             return {
                 "status": "success",
-                "asignaciones": len(nuevas_asignaciones),
-                "salidas": len(nuevas_salidas),
-                "reemplazos": reemplazos
+                "total_programado": len(nuevas_salidas),
+                "reemplazos": reemplazos,
+                "mensaje": "Cronograma quincenal guardado con éxito"
             }
 
         except Exception as e:
             self.db.rollback()
-            raise HTTPException(500, str(e))
-
+            raise HTTPException(500, f"Error al procesar la agenda: {str(e)}")
     # ── Muestra Preview Agenda para su vista en backend─────────────────────────────────────────────────────
 
     def preview_agenda(self, data: AgendaConfirmar) -> dict:
