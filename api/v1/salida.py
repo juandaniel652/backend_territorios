@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from domain.salida.model import Salida
 from core.database import get_db
 from domain.salida.repository import SalidaRepository
@@ -13,6 +13,24 @@ router = APIRouter(prefix="/salidas", tags=["salidas"])
 def listar_salidas(db: Session = Depends(get_db)):
     repo = SalidaRepository(db)
     return repo.listar()
+
+@router.get("/quincena")
+def obtener_agenda_guardada(db: Session = Depends(get_db)):
+    # Usamos joinedload para traer los datos del territorio y conductor en una sola consulta
+    salidas = db.query(Salida)\
+        .options(joinedload(Salida.territorio), joinedload(Salida.conductor))\
+        .order_by(Salida.fecha.asc(), Salida.turno.asc())\
+        .all()
+    
+    # Transformamos a un formato que el Frontend entienda fácil
+    return [{
+        "id": s.id,
+        "fecha": s.fecha.strftime("%Y-%m-%d"),
+        "turno": s.turno,
+        "territorio_id": s.territorio_id,
+        "conductor": s.conductor.nombre if s.conductor else "Sin asignar",
+        "punto_encuentro": s.punto_encuentro
+    } for s in salidas]
 
 @router.get("/quincena-actual")
 def obtener_quincena(db: Session = Depends(get_db)):
