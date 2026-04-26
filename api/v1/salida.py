@@ -49,19 +49,22 @@ def actualizar_salida(salida_id: int, datos: dict, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="No encontrada")
     
     try:
-        # 1. Procesar Conductor (Buscamos el ID por nombre para ser limpios)
+        # 1. Procesar Conductor (Buscamos por el campo real: nombre_completo)
         if "conductor" in datos and datos["conductor"]:
-            nombre_buscado = str(datos["conductor"]).strip()
-            # Buscamos el objeto conductor en la DB
-            conductor_obj = db.query(Conductor).filter(Conductor.nombre == nombre_buscado).first()
+            valor_recibido = str(datos["conductor"]).strip()
+            
+            # Usamos el atributo correcto según tu model.py: nombre_completo
+            conductor_obj = db.query(Conductor).filter(Conductor.nombre_completo.ilike(valor_recibido)).first()
             
             if conductor_obj:
-                # ASIGNAMOS AL ID (Columna física), NO A LA RELACIÓN
                 salida.conductor_id = conductor_obj.id
+                print(f"DEBUG: Vinculado a conductor_id {conductor_obj.id}")
             else:
-                # Si no existe, podemos elegir dejarlo en None o no tocarlo
+                # Si el nombre no coincide exacto, puedes dejarlo en None 
+                # o no tocar el conductor_id previo.
                 salida.conductor_id = None
-
+                print(f"DEBUG: No se encontró conductor con nombre '{valor_recibido}'")
+                
         # 2. Procesar Punto de Encuentro (Columna de texto directa)
         if "punto_encuentro" in datos:
             salida.punto_encuentro = str(datos["punto_encuentro"])
