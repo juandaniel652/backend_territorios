@@ -6,6 +6,7 @@ from domain.salida.repository import SalidaRepository
 from domain.salida.schema import SalidaUpdate
 from domain.conductor.repository import ConductorRepository
 from datetime import datetime
+from domain.conductor.model import Conductor
 
 router = APIRouter(prefix="/salidas", tags=["salidas"])
 
@@ -48,33 +49,41 @@ def actualizar_salida(salida_id: int, datos: dict, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="No encontrada")
     
     try:
-        # 1. FECHA: Convertir string a objeto Date
-        if "fecha" in datos and datos["fecha"]:
-            salida.fecha = datetime.strptime(datos["fecha"], "%Y-%m-%d").date()
-
-        # 2. PUNTO DE ENCUENTRO: Texto directo
-        if "punto_encuentro" in datos:
-            salida.punto_encuentro = datos["punto_encuentro"]
-
-        # 3. CONDUCTOR: El paso limpio
-        if "conductor" in datos:
-            nombre = datos["conductor"].strip()
-            # Buscamos en la tabla de conductores por nombre
-            from domain.conductor.model import Conductor # Asegura el import
-            cond = db.query(Conductor).filter(Conductor.nombre == nombre).first()
+        # 1. Procesar Conductor (Buscamos el ID por nombre para ser limpios)
+        if "conductor" in datos and datos["conductor"]:
+            nombre_buscado = str(datos["conductor"]).strip()
+            # Buscamos el objeto conductor en la DB
+            conductor_obj = db.query(Conductor).filter(Conductor.nombre == nombre_buscado).first()
             
-            if cond:
-                salida.conductor_id = cond.id # Guardamos el ID, no el objeto
+            if conductor_obj:
+                # ASIGNAMOS AL ID (Columna física), NO A LA RELACIÓN
+                salida.conductor_id = conductor_obj.id
             else:
-                # Si no existe, podemos poner null o manejarlo
-                salida.conductor_id = None 
+                # Si no existe, podemos elegir dejarlo en None o no tocarlo
+                salida.conductor_id = None
+
+        # 2. Procesar Punto de Encuentro (Columna de texto directa)
+        if "punto_encuentro" in datos:
+            salida.punto_encuentro = str(datos["punto_encuentro"])
+
+        # 3. Procesar Fecha (Conversión segura a objeto Date)
+        if "fecha" in datos and datos["fecha"]:
+            try:
+                # Convertimos el string ISO de JS a objeto date de Python
+                salida.fecha = datetime.strptime(datos["fecha"], "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                pass # Si la fecha está mal formateada, no la actualizamos
 
         db.commit()
-        return {"status": "ok"}
+        db.refresh(salida) # Sincronizamos el objeto
+        return {"status": "ok", "message": "Actualizado correctamente"}
 
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        # Esto imprimirá el error real en los logs de Render antes de morir
+        print(f"--- ERROR CRÍTICO EN PATCH ---: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error interno del servidor")
+
 
 @router.delete("/{salida_id}")
 def eliminar_salida(salida_id: int, db: Session = Depends(get_db)):
