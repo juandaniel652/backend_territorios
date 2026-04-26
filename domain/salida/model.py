@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Date, ForeignKey, String
+from sqlalchemy import Column, Integer, Date, ForeignKey, String, Boolean
 from sqlalchemy.orm import relationship
 from core.database import Base
 
@@ -10,6 +10,8 @@ class Salida(Base):
     conductor_id = Column(Integer, ForeignKey("conductores.id"), nullable=True)
     fecha = Column(Date, nullable=False)
     turno = Column(String, nullable=False)
+    
+    activo = Column(Boolean, default=True)
     
     # AGREGAMOS ESTO:
     punto_encuentro = Column(String, nullable=True) 

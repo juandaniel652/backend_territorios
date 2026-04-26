@@ -17,20 +17,21 @@ def listar_salidas(db: Session = Depends(get_db)):
 @router.get("/quincena")
 def obtener_agenda_guardada(db: Session = Depends(get_db)):
     # Usamos joinedload para traer los datos del territorio y conductor en una sola consulta
-    salidas = db.query(Salida)\
-        .options(joinedload(Salida.territorio), joinedload(Salida.conductor))\
-        .order_by(Salida.fecha.asc(), Salida.turno.asc())\
-        .all()
+    salidas = db.query(Salida).filter(Salida.activo == True).all()
     
     # Transformamos a un formato que el Frontend entienda fácil
-    return [{
-        "id": s.id,
-        "fecha": s.fecha.strftime("%Y-%m-%d"),
-        "turno": s.turno,
-        "territorio_id": s.territorio_id,
-        "conductor": s.conductor.nombre if s.conductor else "Sin asignar",
-        "punto_encuentro": s.punto_encuentro
-    } for s in salidas]
+    return [
+        {
+            "id": s.id,
+            "fecha": s.fecha_asignado.isoformat() if hasattr(s.fecha_asignado, 'isoformat') else str(s.fecha_asignado),
+            "turno": s.turno,
+            "territorio_id": s.territorio_id,
+            # SOLUCIÓN AL ERROR: usamos str() o un valor por defecto si falla el objeto
+            "conductor": s.conductor.nombre if (s.conductor and hasattr(s.conductor, 'nombre')) else "Varios/Sin asignar",
+            "punto_encuentro": s.punto_encuentro
+        }
+        for s in salidas
+    ]
 
 @router.get("/quincena-actual")
 def obtener_quincena(db: Session = Depends(get_db)):
@@ -39,30 +40,17 @@ def obtener_quincena(db: Session = Depends(get_db)):
     return db.query(Salida).order_by(Salida.fecha.asc(), Salida.turno.asc()).all()
 
 @router.patch("/{salida_id}")
-def actualizar_salida(
-    salida_id: int, 
-    obj_in: SalidaUpdate, 
-    db: Session = Depends(get_db)
-):
-    # 1. Buscar la salida existente
+def actualizar_salida(salida_id: int, datos: dict, db: Session = Depends(get_db)):
     salida = db.query(Salida).filter(Salida.id == salida_id).first()
     if not salida:
-        raise HTTPException(status_code=404, detail="Salida no encontrada")
-
-    # 2. Si viene un nombre de conductor, resolver su ID
-    if obj_in.conductor is not None:
-        repo_cond = ConductorRepository(db)
-        conductor, _ = repo_cond.obtener_o_crear(obj_in.conductor)
-        salida.conductor_id = conductor.id
-
-    # 3. Actualizar el resto de campos (punto_encuentro, fecha, etc.)
-    update_data = obj_in.dict(exclude_unset=True, exclude={'conductor'})
-    for field, value in update_data.items():
-        setattr(salida, field, value)
-
+        raise HTTPException(status_code=404, detail="No encontrada")
+    
+    # Actualizamos dinámicamente los campos que vengan (conductor, encuentro, activo, etc.)
+    for key, value in datos.items():
+        setattr(salida, key, value)
+    
     db.commit()
-    db.refresh(salida)
-    return {"status": "success", "mensaje": "Registro actualizado correctamente"}
+    return {"status": "ok"}
 
 @router.delete("/{salida_id}")
 def eliminar_salida(salida_id: int, db: Session = Depends(get_db)):
