@@ -14,20 +14,21 @@ def listar_salidas(db: Session = Depends(get_db)):
     repo = SalidaRepository(db)
     return repo.listar()
 
+# api/v1/salida.py
+
 @router.get("/quincena")
 def obtener_agenda_guardada(db: Session = Depends(get_db)):
-    # Usamos joinedload para traer los datos del territorio y conductor en una sola consulta
-    salidas = db.query(Salida).filter(Salida.activo == True).all()
+    # Quitamos el .filter(Salida.activo == True) temporalmente
+    salidas = db.query(Salida).all() 
     
-    # Transformamos a un formato que el Frontend entienda fácil
     return [
         {
             "id": s.id,
-            "fecha": s.fecha_asignado.isoformat() if hasattr(s.fecha_asignado, 'isoformat') else str(s.fecha_asignado),
+            "fecha": s.fecha.isoformat() if hasattr(s.fecha, 'isoformat') else str(s.fecha),
             "turno": s.turno,
             "territorio_id": s.territorio_id,
-            # SOLUCIÓN AL ERROR: usamos str() o un valor por defecto si falla el objeto
-            "conductor": s.conductor.nombre if (s.conductor and hasattr(s.conductor, 'nombre')) else "Varios/Sin asignar",
+            # Nota: En el error vi que el campo se llama 'fecha', no 'fecha_asignado'
+            "conductor": "Varios", 
             "punto_encuentro": s.punto_encuentro
         }
         for s in salidas
