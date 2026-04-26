@@ -46,12 +46,21 @@ def actualizar_salida(salida_id: int, datos: dict, db: Session = Depends(get_db)
     if not salida:
         raise HTTPException(status_code=404, detail="No encontrada")
     
-    # Actualizamos dinámicamente los campos que vengan (conductor, encuentro, activo, etc.)
-    for key, value in datos.items():
-        setattr(salida, key, value)
+    # Lista de campos que REALMENTE son columnas de texto/fecha (no relaciones)
+    campos_permitidos = ["conductor", "punto_encuentro", "fecha", "turno", "activo"]
     
-    db.commit()
-    return {"status": "ok"}
+    for key, value in datos.items():
+        if key in campos_permitidos:
+            # Si el valor es una cadena vacía, lo guardamos como None o texto vacío
+            setattr(salida, key, value if value != "" else None)
+    
+    try:
+        db.commit()
+        db.refresh(salida)
+        return {"status": "ok", "id": salida.id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error en base de datos: {str(e)}")
 
 @router.delete("/{salida_id}")
 def eliminar_salida(salida_id: int, db: Session = Depends(get_db)):
