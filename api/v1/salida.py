@@ -5,6 +5,7 @@ from core.database import get_db
 from domain.salida.repository import SalidaRepository
 from domain.salida.schema import SalidaUpdate
 from domain.conductor.repository import ConductorRepository
+from datetime import datetime
 
 router = APIRouter(prefix="/salidas", tags=["salidas"])
 
@@ -46,21 +47,32 @@ def actualizar_salida(salida_id: int, datos: dict, db: Session = Depends(get_db)
     if not salida:
         raise HTTPException(status_code=404, detail="No encontrada")
     
-    # Lista de campos que REALMENTE son columnas de texto/fecha (no relaciones)
-    campos_permitidos = ["conductor", "punto_encuentro", "fecha", "turno", "activo"]
-    
-    for key, value in datos.items():
-        if key in campos_permitidos:
-            # Si el valor es una cadena vacía, lo guardamos como None o texto vacío
-            setattr(salida, key, value if value != "" else None)
-    
     try:
+        # 1. Actualizamos el conductor (Texto simple)
+        if "conductor" in datos:
+            salida.conductor = str(datos["conductor"])
+            
+        # 2. Actualizamos punto de encuentro (Texto simple)
+        if "punto_encuentro" in datos:
+            salida.punto_encuentro = str(datos["punto_encuentro"])
+            
+        # 3. TRATAMIENTO ESPECIAL PARA LA FECHA (Aquí es donde suele fallar)
+        if "fecha" in datos and datos["fecha"]:
+            # Convertimos el string "YYYY-MM-DD" en un objeto date real de Python
+            try:
+                fecha_obj = datetime.strptime(datos["fecha"], "%Y-%m-%d").date()
+                salida.fecha = fecha_obj
+            except ValueError:
+                # Si la fecha viene en otro formato o mal, podrías ignorarla o lanzar error
+                pass
+
         db.commit()
-        db.refresh(salida)
-        return {"status": "ok", "id": salida.id}
+        return {"status": "ok"}
+
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error en base de datos: {str(e)}")
+        print(f"ERROR CRÍTICO: {str(e)}") # Esto lo verás en los logs de Render
+        raise HTTPException(status_code=500, detail="Error interno al actualizar")
 
 @router.delete("/{salida_id}")
 def eliminar_salida(salida_id: int, db: Session = Depends(get_db)):
