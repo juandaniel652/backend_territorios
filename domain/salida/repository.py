@@ -1,3 +1,4 @@
+# backend/domain/salida/repository.py
 from sqlalchemy.orm import Session
 from domain.salida.model import Salida
 
@@ -10,7 +11,8 @@ class SalidaRepository:
         self.db.flush()
         
     def listar(self):
-        return self.db.query(Salida).order_by(Salida.fecha.asc()).all()
+        # Mejoramos el ordenamiento aquí también por consistencia
+        return self.db.query(Salida).order_by(Salida.fecha.asc(), Salida.turno.asc()).all()
     
     def eliminar(self, salida_id: int):
         salida = self.db.get(Salida, salida_id)

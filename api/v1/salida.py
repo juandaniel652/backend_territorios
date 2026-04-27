@@ -19,9 +19,11 @@ def listar_salidas(db: Session = Depends(get_db)):
 # ─── GET: AGENDA QUINCENAL ──────────────────────────────────────────────────
 @router.get("/quincena")
 def obtener_agenda_guardada(db: Session = Depends(get_db)):
-    # Usamos joinedload para traer los datos del conductor en la misma consulta
-    # Esto evita que s.conductor sea None si existe la relación
-    salidas = db.query(Salida).options(joinedload(Salida.conductor)).all() 
+    # AGREGAMOS .order_by para que la lógica de tiempo se respete
+    salidas = db.query(Salida)\
+        .options(joinedload(Salida.conductor))\
+        .order_by(Salida.fecha.asc(), Salida.turno.asc())\
+        .all() 
     
     return [
         {
@@ -29,9 +31,9 @@ def obtener_agenda_guardada(db: Session = Depends(get_db)):
             "fecha": s.fecha.isoformat() if hasattr(s.fecha, 'isoformat') else str(s.fecha),
             "turno": s.turno,
             "territorio_id": s.territorio_id,
-            # SOLUCIÓN AL ERROR LÓGICO: Usamos el nombre real del objeto relacionado
-            "conductor": s.conductor.nombre_completo if s.conductor else "Sin asignar", 
-            "punto_encuentro": s.punto_encuentro
+            # Cambiamos "conductor" por "conductor_nombre" para que UI.js lo lea bien
+            "conductor_nombre": s.conductor.nombre_completo if s.conductor else "Sin asignar", 
+            "punto_encuentro": s.punto_encuentro or "A confirmar"
         }
         for s in salidas
     ]
