@@ -5,8 +5,9 @@ from core.database import get_db
 from domain.salida.repository import SalidaRepository
 from domain.salida.schema import SalidaUpdate
 from domain.conductor.repository import ConductorRepository
-from datetime import datetime
+from datetime import datetime, timedelta, date
 from domain.conductor.model import Conductor
+import calendar
 
 router = APIRouter(prefix="/salidas", tags=["salidas"])
 
@@ -18,20 +19,30 @@ def listar_salidas(db: Session = Depends(get_db)):
 
 # ─── GET: AGENDA QUINCENAL ──────────────────────────────────────────────────
 @router.get("/quincena")
-def obtener_agenda_guardada(db: Session = Depends(get_db)):
-    # AGREGAMOS .order_by para que la lógica de tiempo se respete
+def obtener_agenda_guardada(fecha_base: str = None, db: Session = Depends(get_db)):
+    # 1. Determinar el mes y año a consultar
+    if fecha_base:
+        fecha_dt = datetime.strptime(fecha_base, "%Y-%m-%d").date()
+    else:
+        fecha_dt = date.today()
+
+    # 2. Calcular primer y último día del mes
+    primer_dia = fecha_dt.replace(day=1)
+    ultimo_dia = primer_dia.replace(day=calendar.monthrange(primer_dia.year, primer_dia.month)[1])
+
+    # 3. Filtrar por el rango del mes
     salidas = db.query(Salida)\
         .options(joinedload(Salida.conductor))\
+        .filter(Salida.fecha >= primer_dia, Salida.fecha <= ultimo_dia)\
         .order_by(Salida.fecha.asc(), Salida.turno.asc())\
         .all() 
     
     return [
         {
             "id": s.id,
-            "fecha": s.fecha.isoformat() if hasattr(s.fecha, 'isoformat') else str(s.fecha),
+            "fecha": s.fecha.isoformat(),
             "turno": s.turno,
             "territorio_id": s.territorio_id,
-            # Cambiamos "conductor" por "conductor_nombre" para que UI.js lo lea bien
             "conductor_nombre": s.conductor.nombre_completo if s.conductor else "Sin asignar", 
             "punto_encuentro": s.punto_encuentro or "A confirmar"
         }
