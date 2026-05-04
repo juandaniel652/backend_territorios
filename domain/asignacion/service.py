@@ -461,4 +461,21 @@ class AsignacionService:
             asignacion_id=asignacion_id,
         )
         
-        
+
+    def obtener_sugerencias(self, rango: int = 3):
+        try:
+            # Llamamos al nuevo método del repo
+            territorios = self.territorio_repo.obtener_sugerencias_antiguedad(rango=rango)
+            
+            return [
+                {
+                    "id": t.id,
+                    "numero": t.numero,
+                    "zona": t.zona,
+                    "ultima_visita": t.ultima_fecha_completado.isoformat() if t.ultima_fecha_completado else "Nunca",
+                    "estado": "disponible"
+                }
+                for t in territorios
+            ]
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error al obtener sugerencias: {str(e)}")

@@ -19,11 +19,11 @@ Ventaja de testing:
   En tests se pasa un MockTerritorioRepository que implementa el mismo protocolo
   sin tocar la DB real. El servicio no nota la diferencia.
 """
-
+from sqlalchemy import or_
 from typing import Protocol, runtime_checkable
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from datetime import date
+from datetime import datetime, timedelta, date
 
 from domain.territorio.model import Territorio
 from domain.territorio.schema import AsignacionDeTerritorioOut, SugerenciaTerritorio
@@ -146,3 +146,23 @@ class TerritorioRepository:
     def obtener_todos_con_metadata(self):
         # Traemos todos los territorios ordenados por número o como prefieras
         return self.db.query(Territorio).all()
+    
+    def obtener_sugerencias_antiguedad(self, rango: int = 3, limit: int = 10) -> list[Territorio]:
+        """
+        Busca territorios cuya última fecha de completado sea anterior a 'rango' meses
+        o que nunca hayan sido completados (NULL), ordenados por los más antiguos.
+        """
+        fecha_limite = datetime.now() - timedelta(days=rango * 30)
+
+        return (
+            self.db.query(Territorio)
+            .filter(
+                or_(
+                    Territorio.ultima_fecha_completado <= fecha_limite,
+                    Territorio.ultima_fecha_completado == None
+                )
+            )
+            .order_by(Territorio.ultima_fecha_completado.asc().nulls_first())
+            .limit(limit)
+            .all()
+        )

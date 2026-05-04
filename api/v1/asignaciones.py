@@ -111,3 +111,11 @@ def preview_agenda(
     _: CurrentUser = Depends(require_admin),
 ):
     return service.preview_agenda(data)
+
+@router.get("/sugerencias", summary="Obtener sugerencias de territorios")
+def sugerencias(
+    rango: int = 3,
+    service: AsignacionService = Depends(get_asignacion_service),
+    _: CurrentUser = Depends(require_admin),
+):
+    return service.obtener_sugerencias(rango)
