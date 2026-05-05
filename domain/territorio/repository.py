@@ -150,8 +150,7 @@ class TerritorioRepository:
     def obtener_sugerencias_antiguedad(self, desde: int, hasta: int, limit: int = 10):
         sql = text("""
             SELECT 
-                id, numero, zona, 
-                ultima_fecha_completado, -- Asegurate que el nombre sea exacto
+                id, numero, zona, ultima_fecha_completado,
                 COALESCE(CURRENT_DATE - ultima_fecha_completado, 999) as dias_atraso,
                 CASE 
                     WHEN ultima_fecha_completado IS NULL THEN 'critico'
@@ -165,18 +164,18 @@ class TerritorioRepository:
             LIMIT :limit
         """)
         
-        # IMPORTANTE: .mappings().all() es vital para que devuelva diccionarios
         result = self.db.execute(sql, {"desde": desde, "hasta": hasta, "limit": limit}).mappings().all()
         
-        # Convertimos a una lista de dicts limpia para evitar errores de serialización
-        lista = []
-        for r in result:
-            lista.append({
+        # Creamos los diccionarios con las llaves que el Service busca (como 'ultima_visita')
+        return [
+            {
                 "id": r["id"],
                 "numero": r["numero"],
                 "zona": r["zona"],
+                # Esta es la que causaba el KeyError:
                 "ultima_visita": str(r["ultima_fecha_completado"]) if r["ultima_fecha_completado"] else "Nunca",
                 "dias_atraso": r["dias_atraso"],
                 "severidad": r["severidad"]
-            })
-        return lista
+            }
+            for r in result
+        ]
