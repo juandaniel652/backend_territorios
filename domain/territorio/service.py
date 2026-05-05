@@ -114,11 +114,7 @@ class TerritorioService:
 
     def obtener_sugerencias(self, rango: str, limit: int) -> SugerenciasOut:
         """
-        Devuelve territorios más atrasados dentro del rango dado.
-        Aplica cache en memoria con TTL configurable.
-
-        Raises:
-            HTTPException 400: si el rango no es uno de los valores válidos.
+        Devuelve territorios más atrasados usando la lógica de semáforo de DB.
         """
         if rango not in RANGOS_VALIDOS:
             raise HTTPException(
@@ -134,12 +130,21 @@ class TerritorioService:
             if now - timestamp < CACHE_TTL:
                 return data.model_copy(update={"cache": True})
 
-        # ── Cache miss: calcular ──
+        # ── Cache miss: llamar al REPO con el método de antigüedad ──
         desde, hasta = RANGOS_VALIDOS[rango]
-        hoy = date.today()
+        
+        # IMPORTANTE: Llamamos al método que tiene la query de Supabase
+        sugerencias_db = self.repo.obtener_sugerencias_antiguedad(desde=desde, hasta=hasta, limit=limit)
 
-        sugerencias_raw = self.repo.obtener_sugerencias(desde, hasta, limit)
-        sugerencias = [_enriquecer_sugerencia(s, hoy) for s in sugerencias_raw]
+        # Convertimos los dicts de la DB al Schema Pydantic SugerenciaTerritorio
+        sugerencias = [
+            SugerenciaTerritorio(
+                numero=s["numero"],
+                ultima_fecha=date.fromisoformat(s["ultima_visita"]) if s["ultima_visita"] != "Nunca" else None,
+                dias_atraso=s["dias_atraso"],
+                severidad=s["severidad"]
+            ) for s in sugerencias_db
+        ]
 
         resultado = SugerenciasOut(
             rango=rango,

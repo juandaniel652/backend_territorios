@@ -147,22 +147,32 @@ class TerritorioRepository:
         # Traemos todos los territorios ordenados por número o como prefieras
         return self.db.query(Territorio).all()
     
-    def obtener_sugerencias_antiguedad(self, rango: int = 3, limit: int = 10) -> list[Territorio]:
+    def obtener_sugerencias_antiguedad(self, desde: int, hasta: int, limit: int = 10):
         """
-        Busca territorios cuya última fecha de completado sea anterior a 'rango' meses
-        o que nunca hayan sido completados (NULL), ordenados por los más antiguos.
+        Versión corregida: Filtra por bloque numérico y calcula severidad 
+        directamente en SQL para máxima precisión.
         """
-        fecha_limite = datetime.now() - timedelta(days=rango * 30)
-
-        return (
-            self.db.query(Territorio)
-            .filter(
-                or_(
-                    Territorio.ultima_fecha_completado <= fecha_limite,
-                    Territorio.ultima_fecha_completado == None
-                )
-            )
-            .order_by(Territorio.ultima_fecha_completado.asc().nulls_first())
-            .limit(limit)
-            .all()
-        )
+        sql = text("""
+            SELECT 
+                id, 
+                numero, 
+                zona, 
+                ultima_fecha_completado,
+                COALESCE(CURRENT_DATE - ultima_fecha_completado, 999) as dias_atraso,
+                CASE 
+                    WHEN ultima_fecha_completado IS NULL THEN 'critico'
+                    WHEN (CURRENT_DATE - ultima_fecha_completado) > 120 THEN 'critico'
+                    WHEN (CURRENT_DATE - ultima_fecha_completado) > 60 THEN 'severo'
+                    ELSE 'normal'
+                END as severidad
+            FROM territorios
+            WHERE numero BETWEEN :desde AND :hasta
+            ORDER BY dias_atraso DESC, numero ASC
+            LIMIT :limit
+        """)
+        
+        # Ejecutamos y convertimos a mappings para acceder por nombre de columna
+        rows = self.db.execute(sql, {"desde": desde, "hasta": hasta, "limit": limit}).mappings().all()
+        
+        # Retornamos la lista de diccionarios con la metadata de semáforo
+        return [dict(row) for row in rows]
