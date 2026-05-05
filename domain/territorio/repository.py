@@ -148,34 +148,61 @@ class TerritorioRepository:
         return self.db.query(Territorio).all()
     
     def obtener_sugerencias_antiguedad(self, desde: int, hasta: int, limit: int = 10):
+        # Esta query une la fecha estática de la tabla territorios 
+        # con la fecha más nueva de la tabla asignaciones
         sql = text("""
+            WITH UltimaAsignacionPorTerritorio AS (
+                SELECT territorio_id, MAX(fecha_completado) as fecha_max
+                FROM asignaciones
+                GROUP BY territorio_id
+            )
             SELECT 
-                id, numero, zona, ultima_fecha_completado,
-                COALESCE(CURRENT_DATE - ultima_fecha_completado, 999) as dias_atraso,
-                CASE 
-                    WHEN ultima_fecha_completado IS NULL THEN 'critico'
-                    WHEN (CURRENT_DATE - ultima_fecha_completado) > 120 THEN 'critico'
-                    WHEN (CURRENT_DATE - ultima_fecha_completado) > 60 THEN 'severo'
-                    ELSE 'normal'
-                END as severidad
-            FROM territorios
-            WHERE numero BETWEEN :desde AND :hasta
-            ORDER BY dias_atraso DESC, numero ASC
+                t.id, 
+                t.numero, 
+                t.zona,
+                -- Elegimos la mayor entre la fecha vieja y la del historial
+                GREATEST(
+                    COALESCE(t.ultima_fecha_completado, '1900-01-01'), 
+                    COALESCE(ua.fecha_max, '1900-01-01')
+                ) as fecha_final
+            FROM territorios t
+            LEFT JOIN UltimaAsignacionPorTerritorio ua ON t.id = ua.territorio_id
+            WHERE t.numero BETWEEN :desde AND :hasta
+            ORDER BY 
+                -- Los que tienen NULL o '1900-01-01' (nunca hechos) van primero
+                fecha_final ASC, 
+                t.numero ASC
             LIMIT :limit
         """)
         
         result = self.db.execute(sql, {"desde": desde, "hasta": hasta, "limit": limit}).mappings().all()
         
-        # Creamos los diccionarios con las llaves que el Service busca (como 'ultima_visita')
-        return [
-            {
+        # Procesamos los resultados para calcular los días de atraso en Python
+        from datetime import date
+        hoy = date.today()
+        sugerencias = []
+    
+        for r in result:
+            fecha_f = r["fecha_final"]
+            if fecha_f == date(1900, 1, 1):
+                ultima_visita = "Nunca"
+                dias_atraso = 999
+                severidad = "critico"
+            else:
+                ultima_visita = str(fecha_f)
+                dias_atraso = (hoy - fecha_f).days
+                if dias_atraso > 120: severidad = "critico"
+                elif dias_atraso > 60: severidad = "severo"
+                else: severidad = "normal"
+    
+            sugerencias.append({
                 "id": r["id"],
                 "numero": r["numero"],
                 "zona": r["zona"],
-                # Esta es la que causaba el KeyError:
-                "ultima_visita": str(r["ultima_fecha_completado"]) if r["ultima_fecha_completado"] else "Nunca",
-                "dias_atraso": r["dias_atraso"],
-                "severidad": r["severidad"]
-            }
-            for r in result
-        ]
+                "ultima_visita": ultima_visita,
+                "dias_atraso": dias_atraso,
+                "severidad": severidad
+            })
+        
+        # Re-ordenamos por días de atraso (más días arriba)
+        return sorted(sugerencias, key=lambda x: x['dias_atraso'], reverse=True)

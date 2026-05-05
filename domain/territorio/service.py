@@ -140,7 +140,8 @@ class TerritorioService:
         sugerencias = [
             SugerenciaTerritorio(
                 numero=s["numero"],
-                ultima_fecha=date.fromisoformat(s["ultima_visita"]) if s["ultima_visita"] != "Nunca" else None,
+                # Cambiamos esto para que sea más robusto
+                ultima_fecha=date.fromisoformat(s["ultima_visita"]) if (s["ultima_visita"] and s["ultima_visita"] != "Nunca") else None,
                 dias_atraso=s["dias_atraso"],
                 severidad=s["severidad"]
             ) for s in sugerencias_db
