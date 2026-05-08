@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from domain.territorio.model import Territorio
 from domain.asignacion.model import Asignacion
 from domain.conductor.model import Conductor
-from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOut, AgendaItemIn
+from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOut, AgendaItemIn, PropuestaDiaOut
 from core.database import get_db
 from domain.territorio.repository import TerritorioRepository
 from domain.territorio.service import TerritorioService
@@ -56,21 +56,22 @@ def obtener_sugerencias(
 ):
     return service.obtener_sugerencias(rango=rango, limit=limit)
 
-# --- NUEVO ENDPOINT: Debe ir antes de /{numero} ---
+
 @router.get(
-    "/generar-plan",
-    summary="Genera una propuesta de agenda quincenal",
+    "/propuesta-agenda",
+    response_model=List[PropuestaDiaOut],  # <--- Usamos el nuevo esquema
+    summary="Genera una propuesta basada en el día (Sábado vs Semana)",
 )
-def generar_plan(
-    fecha_inicio: date = Query(..., description="Fecha lunes de inicio YYYY-MM-DD"), 
+def obtener_propuesta_agenda(
+    fecha: date = Query(..., description="Fecha para la que se planea la salida"),
     service: TerritorioService = Depends(get_territorio_service),
 ):
     """
-    Llama al servicio para calcular qué territorios 
-    deben asignarse en la quincena.
+    Lógica de negocio aplicada:
+    - Si es Sábado: Filtra Zona 3 y Zona 2 crítica.
+    - Si es otro día: Filtra el resto.
     """
-    # Si aún no creaste el método en el service, podés retornar un [] para testear
-    return service.generar_plan_quincenal(fecha_inicio)
+    return service.generar_propuesta_dia(fecha)
 
 
 @router.get(
@@ -83,11 +84,3 @@ def obtener_historial(
     service: TerritorioService = Depends(get_territorio_service),
 ):
     return service.obtener_historial(numero)
-
-    
-@router.get("/plan-quincenal")
-def plan_quincenal(
-    fecha_inicio: date,
-    service: TerritorioService = Depends(get_territorio_service)
-):
-    return service.generar_plan_quincenal(fecha_inicio)

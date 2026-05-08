@@ -69,3 +69,24 @@ class AgendaItemIn(BaseModel):
     turno: str
     conductor: str
     encuentro: str
+
+class PropuestaDiaOut(BaseModel):
+    """Representa un territorio sugerido para una fecha específica."""
+    territorio_id: int
+    numero: int
+    ultima_fecha: Optional[date] = None
+    zona_descripcion: str
+    turno_recomendado: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+class PlanQuincenalOut(BaseModel):
+    """
+    Si decidís mantener la vista quincenal en el futuro, 
+    este es el formato que evita errores.
+    """
+    fecha: date
+    turno: str
+    territorio_id: int
+    numero: int
+    zona: int

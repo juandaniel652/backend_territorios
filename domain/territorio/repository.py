@@ -206,3 +206,30 @@ class TerritorioRepository:
         
         # Re-ordenamos por días de atraso (más días arriba)
         return sorted(sugerencias, key=lambda x: x['dias_atraso'], reverse=True)
+    
+    def obtener_sugerencias_por_dia(self, es_sabado: bool, limit: int = 10):
+        # Regla: Sábado AM habilita Z3 y Z2 crítica. Semana las prohíbe.
+        if es_sabado:
+            filtro = "(t.numero BETWEEN 42 AND 60 OR t.numero IN (28, 29, 30, 31))"
+        else:
+            filtro = "(t.numero NOT BETWEEN 42 AND 60 AND t.numero NOT IN (28, 29, 30, 31))"
+
+        sql = text(f"""
+            WITH UltimaAsignacion AS (
+                SELECT territorio_id, MAX(fecha_completado) as fecha_max
+                FROM asignaciones
+                GROUP BY territorio_id
+            )
+            SELECT 
+                t.id, 
+                t.numero, 
+                t.zona,
+                COALESCE(ua.fecha_max, t.ultima_fecha_completado) as ultima_fecha
+            FROM territorios t
+            LEFT JOIN UltimaAsignacion ua ON t.id = ua.territorio_id
+            WHERE {filtro}
+            ORDER BY ultima_fecha ASC NULLS FIRST
+            LIMIT :limit
+        """)
+        
+        return self.db.execute(sql, {"limit": limit}).mappings().all()

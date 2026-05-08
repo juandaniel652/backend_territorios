@@ -21,6 +21,7 @@ Reemplaza:
 """
 
 from datetime import date, timedelta
+from .repository import TerritorioRepository
 from time import time
 from fastapi import HTTPException
 
@@ -187,50 +188,33 @@ class TerritorioService:
         
         bono_zona = 15 if territorio.zona == 1 else 0
         return (dias_desde * 1.2) + bono_zona
-
-    # --- El Motor Principal ---
-
-    def generar_plan_quincenal(self, fecha_inicio: date):
-        # FUERZA EL LUNES: Si llega miércoles 15, esto lo convierte en lunes 13
-        # weekday() devuelve 0 para lunes, 2 para miércoles.
-        fecha_lunes = fecha_inicio - timedelta(days=fecha_inicio.weekday())
+    
+    def generar_propuesta_dia(self, fecha_objetivo: date):
+        # 1. Determinar si es sábado (5 es sábado en Python)
+        es_sabado = fecha_objetivo.weekday() == 5
         
-        territorios = self.repo.obtener_todos_con_metadata()
-        plan = []
-        usados_en_esta_quincena = set()
-
-        dias_laborales = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado"]
+        # 2. Pedir al repo los territorios según la regla de negocio
+        raw_sugerencias = self.repo.obtener_sugerencias_por_dia(es_sabado=es_sabado)
         
-        for semana in [0, 1]:
-            for dia_nombre in dias_laborales:
-                if dia_nombre == "lunes": turnos = ["PM"]
-                elif dia_nombre == "miercoles": turnos = ["AM"]
-                else: turnos = ["AM", "PM"]
-                
-                for turno in turnos:
-                    # USAMOS fecha_lunes como base absoluta
-                    fecha_slot = fecha_lunes + timedelta(days=(semana * 7) + self._get_offset(dia_nombre))
-                    
-                    candidatos = [
-                        t for t in territorios 
-                        if t.id not in usados_en_esta_quincena
-                        and self._valida_restricciones(t, dia_nombre, turno)
-                    ]
+        propuesta = []
+        for s in raw_sugerencias:
+            num = s["numero"]
+            
+            # Clasificación visual para el frontend
+            if 42 <= num <= 60: 
+                zona_tag = "Zona 3 (Sábado)"
+            elif num in [28, 29, 30, 31]: 
+                zona_tag = "Zona 2 (Crítica)"
+            else: 
+                zona_tag = "Zona Estándar"
 
-                    if candidatos:
-                        candidatos.sort(
-                            key=lambda x: self.calcular_score(x, fecha_slot), 
-                            reverse=True
-                        )
-                        
-                        elegido = candidatos[0]
-                        plan.append({
-                            "fecha": fecha_slot,
-                            "turno": turno,
-                            "territorio_id": elegido.id,
-                            "numero": elegido.numero,
-                            "zona": elegido.zona
-                        })
-                        usados_en_esta_quincena.add(elegido.id)
-        
-        return plan
+            # El retorno debe matchear con PropuestaDiaOut
+            propuesta.append({
+                "territorio_id": s["id"],
+                "numero": num,
+                "ultima_fecha": s["ultima_fecha"],
+                "zona_descripcion": zona_tag,
+                "turno_recomendado": "SÁBADO AM" if es_sabado else "SEMANA / TARDE"
+            })
+            
+        return propuesta
