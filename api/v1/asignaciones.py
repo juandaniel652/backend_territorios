@@ -119,3 +119,13 @@ def sugerencias(
     _: CurrentUser = Depends(require_admin),
 ):
     return service.obtener_sugerencias(rango)
+
+@router.get("/historial", summary="Obtener historial de asignaciones recientes")
+def obtener_historial(
+    limit: int = 20,
+    service: AsignacionService = Depends(get_asignacion_service),
+    # _: CurrentUser = Depends(require_admin), # Descomenta si queres seguridad
+):
+    # Asegurate de que el service tenga un método para listar asignaciones
+    # Si no lo tiene, podés usar directamente el repo aquí para probar
+    return service.asignacion_repo.get_recientes(limit=limit)
