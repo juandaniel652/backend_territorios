@@ -28,6 +28,10 @@ from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOu
 from datetime import date
 from typing import List
 
+from api.deps import get_asignacion_service
+from domain.asignacion.service import AsignacionService
+from domain.asignacion.schema import AgendaConfirmar
+
 
 
 router = APIRouter(prefix="/territorios", tags=["territorios"])
@@ -84,3 +88,14 @@ def obtener_historial(
     service: TerritorioService = Depends(get_territorio_service),
 ):
     return service.obtener_historial(numero)
+
+@router.post("/confirmar-agenda", summary="Guarda la propuesta aceptada en la DB")
+def confirmar_agenda(
+    data: AgendaConfirmar,
+    service: AsignacionService = Depends(get_asignacion_service)
+):
+    """
+    Toma la lista de territorios, conductores y turnos 
+    y los persiste en las tablas 'asignaciones' y 'salidas'.
+    """
+    return service.confirmar_agenda_masiva(data)
