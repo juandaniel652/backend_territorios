@@ -120,3 +120,11 @@ class AsignacionRepository:
         """
         self.db.delete(asignacion)
         self.db.flush()
+        
+    def get_recientes(self, limit: int = 20):
+        return (
+            self.db.query(Asignacion)
+            .order_by(Asignacion.fecha_asignado.desc(), Asignacion.id.desc())
+            .limit(limit)
+            .all()
+        )
