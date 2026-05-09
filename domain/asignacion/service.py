@@ -44,22 +44,20 @@ class AsignacionService:
 
     def crear_asignacion(self, data: AsignacionCreate) -> AsignacionCreatedOut:
         try:
+            # 1. Búsqueda de territorio por número
             territorio = self.territorio_repo.obtener_por_numero(data.numero_territorio)
-
             if not territorio:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Territorio {data.numero_territorio} no encontrado",
-                )
+                raise HTTPException(status_code=404, detail=f"Territorio {data.numero_territorio} no encontrado")
 
-            # ✔️ ahora sí existe territorio
+            # 2. Lógica de ciclos (Planilla/Fila)
             visitas = self.asignacion_repo.contar_completadas(territorio.id)
-
             planilla = visitas // 5 + 1
             fila = visitas % 5 + 1
 
+            # 3. Resolución de conductor
             conductor, conductor_creado = self.conductor_repo.obtener_o_crear(data.conductor)
 
+            # 4. Creación de la asignación en el Repo
             asignacion = self.asignacion_repo.crear(
                 territorio_id=territorio.id,
                 conductor_id=conductor.id,
@@ -70,7 +68,18 @@ class AsignacionService:
                 fila=fila
             )
 
+            # ─── AQUÍ VA EL PUNTO 2 (EL IMPACTO) ───
+            # Si el usuario ya marcó la fecha de completado al crearla:
+            if data.fecha_completado:
+                self.territorio_repo.actualizar_fecha_terminado(
+                    territorio_id=territorio.id,
+                    fecha=data.fecha_completado
+                )
+            # ────────────────────────────────────────
+
+            # 5. Guardado final y refresco
             self.db.commit()
+            self.db.refresh(asignacion)
 
         except Exception as e:
             self.db.rollback()

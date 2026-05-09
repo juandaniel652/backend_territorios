@@ -61,6 +61,15 @@ class TerritorioRepositoryProtocol(Protocol):
         asignación ascendente (los más atrasados primero).
         """
         ...
+        
+    def actualizar_fecha_terminado(self, territorio_id: int, fecha: date) -> None:
+        """
+        Actualiza el campo ultima_fecha_completado en la tabla territorios.
+        Esto asegura que las sugerencias por antigüedad funcionen al instante.
+        """
+        territorio = self.obtener_por_id(territorio_id)
+        if territorio:
+            territorio.ultima_fecha_completado = fecha
 
 
 # ─────────────────────────────────────────────
@@ -233,3 +242,13 @@ class TerritorioRepository:
         """)
         
         return self.db.execute(sql, {"limit": limit}).mappings().all()
+    
+    
+    def actualizar_fecha_terminado(self, territorio_id: int, fecha: date) -> None:
+        """
+        Actualiza el campo ultima_fecha_completado en la tabla territorios.
+        Esto asegura que las sugerencias por antigüedad funcionen al instante.
+        """
+        territorio = self.obtener_por_id(territorio_id)
+        if territorio:
+            territorio.ultima_fecha_completado = fecha
