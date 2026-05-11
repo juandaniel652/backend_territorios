@@ -121,8 +121,6 @@ class TerritorioRepository:
 
         return [AsignacionDeTerritorioOut(**row) for row in rows]
 
-    # Dentro de TerritorioRepository en domain/territorio/repository.py
-
     def obtener_sugerencias(self, desde: int, hasta: int, limit: int) -> list[SugerenciaTerritorio]:
         # Usamos COALESCE para que si la fecha es NULL (nunca se hizo), 
         # se comporte como una fecha muy vieja.
@@ -151,7 +149,6 @@ class TerritorioRepository:
             for row in rows
         ]
         
-    # En backend/domain/territorio/repository.py
     def obtener_todos_con_metadata(self):
         # Traemos todos los territorios ordenados por número o como prefieras
         return self.db.query(Territorio).all()
@@ -243,7 +240,6 @@ class TerritorioRepository:
         
         return self.db.execute(sql, {"limit": limit}).mappings().all()
     
-    
     def actualizar_fecha_terminado(self, territorio_id: int, fecha: date) -> None:
         """
         Actualiza el campo ultima_fecha_completado en la tabla territorios.
@@ -252,3 +248,13 @@ class TerritorioRepository:
         territorio = self.obtener_por_id(territorio_id)
         if territorio:
             territorio.ultima_fecha_completado = fecha
+            
+    def count_asignaciones_by_numero(self, numero: int) -> int:
+        query = """
+            SELECT COUNT(a.id) 
+            FROM asignaciones a
+            JOIN territorios t ON a.territorio_id = t.id
+            WHERE t.numero = :numero
+        """
+        result = self.db.execute(text(query), {"numero": numero}).scalar()
+        return result or 0

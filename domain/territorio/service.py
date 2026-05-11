@@ -30,6 +30,7 @@ from domain.territorio.schema import (
     TerritorioConAsignacionesOut,
     SugerenciaTerritorio,
     SugerenciasOut,
+    TerritorioPlanillaInfo
 )
 
 # ─────────────────────────────────────────────
@@ -218,3 +219,10 @@ class TerritorioService:
             })
             
         return propuesta
+    
+    # ── Planillas ──────────────────────────
+    
+    def obtener_estado_planilla(self, numero: int) -> TerritorioPlanillaInfo:
+        # El repo debe tener un método que cuente las asignaciones
+        total_salidas = self.repository.count_asignaciones_by_numero(numero)
+        return TerritorioPlanillaInfo.calcular(numero, total_salidas)

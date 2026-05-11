@@ -90,3 +90,28 @@ class PlanQuincenalOut(BaseModel):
     territorio_id: int
     numero: int
     zona: int
+
+class TerritorioPlanillaInfo(BaseModel):
+    numero: int
+    total_salidas: int
+    planillas_completas: int
+    resto: int
+    mensaje_estado: str
+
+    @classmethod
+    def calcular(cls, numero: int, total_salidas: int):
+        completas = total_salidas // 5
+        resto = total_salidas % 5
+        
+        if resto == 0:
+            mensaje = f"{completas} Completas"
+        else:
+            mensaje = f"{completas} Completas y {resto}/5 de planilla {completas + 1}"
+            
+        return cls(
+            numero=numero,
+            total_salidas=total_salidas,
+            planillas_completas=completas,
+            resto=resto,
+            mensaje_estado=mensaje
+        )

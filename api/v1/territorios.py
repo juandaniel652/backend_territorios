@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from domain.territorio.model import Territorio
 from domain.asignacion.model import Asignacion
 from domain.conductor.model import Conductor
-from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOut, AgendaItemIn, PropuestaDiaOut
+from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOut, AgendaItemIn, PropuestaDiaOut, TerritorioPlanillaInfo
 from core.database import get_db
 from domain.territorio.repository import TerritorioRepository
 from domain.territorio.service import TerritorioService
@@ -60,24 +60,6 @@ def obtener_sugerencias(
 ):
     return service.obtener_sugerencias(rango=rango, limit=limit)
 
-
-@router.get(
-    "/propuesta-agenda",
-    response_model=List[PropuestaDiaOut],  # <--- Usamos el nuevo esquema
-    summary="Genera una propuesta basada en el día (Sábado vs Semana)",
-)
-def obtener_propuesta_agenda(
-    fecha: date = Query(..., description="Fecha para la que se planea la salida"),
-    service: TerritorioService = Depends(get_territorio_service),
-):
-    """
-    Lógica de negocio aplicada:
-    - Si es Sábado: Filtra Zona 3 y Zona 2 crítica.
-    - Si es otro día: Filtra el resto.
-    """
-    return service.generar_propuesta_dia(fecha)
-
-
 @router.get(
     "/{numero}",
     response_model=TerritorioConAsignacionesOut,
@@ -99,3 +81,26 @@ def confirmar_agenda(
     y los persiste en las tablas 'asignaciones' y 'salidas'.
     """
     return service.confirmar_agenda_masiva(data)
+
+@router.get(
+    "/propuesta-agenda",
+    response_model=List[PropuestaDiaOut],  # <--- Usamos el nuevo esquema
+    summary="Genera una propuesta basada en el día (Sábado vs Semana)",
+)
+def obtener_propuesta_agenda(
+    fecha: date = Query(..., description="Fecha para la que se planea la salida"),
+    service: TerritorioService = Depends(get_territorio_service),
+):
+    """
+    Lógica de negocio aplicada:
+    - Si es Sábado: Filtra Zona 3 y Zona 2 crítica.
+    - Si es otro día: Filtra el resto.
+    """
+    return service.generar_propuesta_dia(fecha)
+
+@router.get("/{numero}/planilla-status", response_model=TerritorioPlanillaInfo)
+def get_territorio_planilla_status(
+    numero: int, 
+    service: TerritorioService = Depends(get_territorio_service)
+):
+    return service.obtener_estado_planilla(numero)
