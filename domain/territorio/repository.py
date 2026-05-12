@@ -249,17 +249,16 @@ class TerritorioRepository:
         if territorio:
             territorio.ultima_fecha_completado = fecha
     
-    def obtener_estado_real(self, numero: int):
-        query = """
+    def obtener_estado_detallado(self, numero: int):
+        query = text("""
             SELECT 
-                territorio as numero,
                 total_completados as total_salidas,
                 ciclo_actual,
                 proxima_fila as fila_actual,
                 nombre_planilla_actual as nombre_planilla,
                 anio_planilla_actual as anio
             FROM vista_estado_territorios
-            WHERE territorio = :numero
-        """
-        result = self.db.execute(text(query), {"numero": numero}).mappings().first()
+            WHERE territorio = :num
+        """)
+        result = self.db.execute(query, {"num": numero}).mappings().first()
         return result
