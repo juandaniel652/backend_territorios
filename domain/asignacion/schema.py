@@ -5,7 +5,7 @@ domain/asignacion/schema.py
 from pydantic import BaseModel, ConfigDict, field_validator
 from datetime import date
 from typing import Optional
-
+from domain.planilla.schema import PlanillaOut
 
 class AsignacionCreate(BaseModel):
     numero_territorio: int
@@ -67,20 +67,25 @@ class AsignacionUpdate(BaseModel):
                     "fecha_completado no puede ser anterior a fecha_asignado"
                 )
         return v
-
-
 class AsignacionOut(BaseModel):
-    """Representación completa de una asignación para respuestas de la API."""
+    """Representación enriquecida con datos de planilla y conductor."""
     id: int
     territorio_id: int
     conductor_id: int
-    conductor_nombre: Optional[str] = None   # enriquecido en service
+    conductor_nombre: Optional[str] = None
+    
+    # Campos técnicos del Trigger
+    fila: Optional[int] = None
+    planilla_ciclo: Optional[int] = None
+    
     fecha_asignado: Optional[date] = None
     fecha_completado: Optional[date] = None
     cantidad_abarcado: Optional[str] = None
+    
+    # La magia: incluye el objeto planilla completo si existe
+    planilla: Optional[PlanillaOut] = None 
 
     model_config = ConfigDict(from_attributes=True)
-
 
 class AsignacionCreatedOut(BaseModel):
     """Respuesta de confirmación tras POST /asignaciones."""
@@ -88,18 +93,15 @@ class AsignacionCreatedOut(BaseModel):
     asignacion_id: int
     conductor_creado: bool
 
-
 class AsignacionUpdatedOut(BaseModel):
     """Respuesta de confirmación tras PUT /asignaciones/{id}."""
     message: str
     asignacion_id: int
 
-
 class AsignacionDeletedOut(BaseModel):
     """Respuesta de confirmación tras DELETE /asignaciones/{id}."""
     message: str
     asignacion_id: int
-
 
 class ItemAgendaConfirmar(BaseModel):
     territorio_id: int
@@ -107,7 +109,6 @@ class ItemAgendaConfirmar(BaseModel):
     turno: str  # "AM" o "PM"
     conductor: str  
     encuentro: str
-
 
 class AgendaConfirmar(BaseModel):
     items: list[ItemAgendaConfirmar]

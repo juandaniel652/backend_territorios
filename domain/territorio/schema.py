@@ -23,7 +23,6 @@ class TerritorioOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
 class AsignacionDeTerritorioOut(BaseModel):
     """
     Shape de cada fila del historial de asignaciones de un territorio.
@@ -37,13 +36,11 @@ class AsignacionDeTerritorioOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
 class TerritorioConAsignacionesOut(BaseModel):
     """Respuesta completa para GET /territorios/{numero}."""
     territorio: int
     asignaciones: list[AsignacionDeTerritorioOut]
     mensaje: Optional[str] = None
-
 
 class SugerenciaTerritorio(BaseModel):
     """
@@ -54,7 +51,6 @@ class SugerenciaTerritorio(BaseModel):
     ultima_fecha: Optional[date] = None
     dias_atraso: Optional[int] = None
     severidad: str   # "nunca" | "critico" | "alto" | "normal"
-
 
 class SugerenciasOut(BaseModel):
     """Respuesta completa para GET /territorios/sugerencias."""
@@ -94,24 +90,13 @@ class PlanQuincenalOut(BaseModel):
 class TerritorioPlanillaInfo(BaseModel):
     numero: int
     total_salidas: int
-    planillas_completas: int
-    resto: int
+    ciclo_actual: int
+    fila_actual: int
+    nombre_planilla: str
+    anio: int
     mensaje_estado: str
-
+    
     @classmethod
-    def calcular(cls, numero: int, total_salidas: int):
-        completas = total_salidas // 5
-        resto = total_salidas % 5
-        
-        if resto == 0:
-            mensaje = f"{completas} Completas"
-        else:
-            mensaje = f"{completas} Completas y {resto}/5 de planilla {completas + 1}"
-            
-        return cls(
-            numero=numero,
-            total_salidas=total_salidas,
-            planillas_completas=completas,
-            resto=resto,
-            mensaje_estado=mensaje
-        )
+    def desde_db(cls, datos_db):
+        # Aquí 'datos_db' sería lo que devuelva tu nueva query
+        return cls(**datos_db)

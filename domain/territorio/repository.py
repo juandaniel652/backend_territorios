@@ -248,13 +248,18 @@ class TerritorioRepository:
         territorio = self.obtener_por_id(territorio_id)
         if territorio:
             territorio.ultima_fecha_completado = fecha
-            
-    def count_asignaciones_by_numero(self, numero: int) -> int:
+    
+    def obtener_estado_real(self, numero: int):
         query = """
-            SELECT COUNT(a.id) 
-            FROM asignaciones a
-            JOIN territorios t ON a.territorio_id = t.id
-            WHERE t.numero = :numero
+            SELECT 
+                territorio as numero,
+                total_completados as total_salidas,
+                ciclo_actual,
+                proxima_fila as fila_actual,
+                nombre_planilla_actual as nombre_planilla,
+                anio_planilla_actual as anio
+            FROM vista_estado_territorios
+            WHERE territorio = :numero
         """
-        result = self.db.execute(text(query), {"numero": numero}).scalar()
-        return result or 0
+        result = self.db.execute(text(query), {"numero": numero}).mappings().first()
+        return result

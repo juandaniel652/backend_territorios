@@ -23,12 +23,22 @@ class Asignacion(Base):
     id            = Column(Integer, primary_key=True, index=True)
     territorio_id = Column(Integer, ForeignKey("territorios.id"), nullable=False, index=True)
     conductor_id  = Column(Integer, ForeignKey("conductores.id"), nullable=False, index=True)
-    fecha_asignado   = Column(Date, nullable=True)
-    fecha_completado = Column(Date, nullable=True)
-    cantidad_abarcado = Column(String, nullable=True)
     
+    # Estos campos los llena el Trigger, pero Python debe conocerlos
+    planilla_id = Column(Integer, ForeignKey("nombres_planillas.id"))
     planilla_ciclo = Column(Integer, nullable=True)
-    fila = Column(Integer, nullable=True)
+    fila           = Column(Integer, nullable=True)
+
+    fecha_asignado    = Column(Date, nullable=True)
+    fecha_completado  = Column(Date, nullable=True)
+    cantidad_abarcado = Column(String, nullable=True)
+
+    # Relaciones
+    territorio = relationship("Territorio", back_populates="asignaciones")
+    conductor  = relationship("Conductor", back_populates="asignaciones")
+    
+    # Para que esto funcione, necesitas tener la clase NombrePlanilla definida
+    planilla = relationship("NombrePlanilla")
 
     # ── Relationships ────────────────────────────────────────────────────────
     # Permiten acceder a obj.territorio y obj.conductor sin queries adicionales

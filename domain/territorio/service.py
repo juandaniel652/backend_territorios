@@ -223,6 +223,31 @@ class TerritorioService:
     # ── Planillas ──────────────────────────
     
     def obtener_estado_planilla(self, numero: int) -> TerritorioPlanillaInfo:
-        # El repo debe tener un método que cuente las asignaciones
-        total_salidas = self.repo.count_asignaciones_by_numero(numero)
-        return TerritorioPlanillaInfo.calcular(numero, total_salidas)
+        # 1. El repo consulta la VISTA (que ya tiene los JOINS y cálculos)
+        info_db = self.repo.obtener_estado_detallado(numero)
+        
+        if not info_db or info_db["total_salidas"] == 0:
+            hoy = date.today()
+            # Regla de Septiembre para el "Año de Servicio"
+            anio_servicio = hoy.year + 1 if hoy.month >= 9 else hoy.year
+            
+            return TerritorioPlanillaInfo(
+                numero=numero,
+                total_salidas=0,
+                ciclo_actual=1,
+                fila_actual=1,
+                nombre_planilla="Pendiente de inicio",
+                anio=anio_servicio,
+                mensaje_estado="Sin salidas registradas"
+            )
+    
+        # 2. Mapeo de la "Verdad Absoluta" desde la DB
+        return TerritorioPlanillaInfo(
+            numero=numero,
+            total_salidas=info_db["total_salidas"],
+            ciclo_actual=info_db["ciclo_actual"],
+            fila_actual=info_db["fila_actual"],
+            nombre_planilla=info_db["nombre_planilla"] or "Planilla sin nombre",
+            anio=info_db["anio"],
+            mensaje_estado=f"Ciclo {info_db['ciclo_actual']} - Fila {info_db['fila_actual']}/5"
+        )
