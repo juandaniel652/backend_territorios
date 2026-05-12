@@ -224,36 +224,37 @@ class TerritorioService:
     
     def obtener_estado_planilla(self, numero: int) -> TerritorioPlanillaInfo:
         info_db = self.repo.obtener_estado_detallado(numero)
-        
-        # 1. Blindaje para territorios nuevos
+        hoy = date.today()
+        anio_defecto = hoy.year + 1 if hoy.month >= 9 else hoy.year
+    
         if not info_db or info_db["total_salidas"] == 0:
-            hoy = date.today()
-            anio_defecto = hoy.year + 1 if hoy.month >= 9 else hoy.year
             return TerritorioPlanillaInfo(
                 numero=numero, total_salidas=0,
-                ciclo_actual=1, fila_actual=0, # 0 indica que no empezó
+                ciclo_actual=1, fila_actual=0, 
+                proximo_ciclo=1, proxima_fila=1, # <--- Agregado
                 nombre_planilla="Sin iniciar",
                 anio=anio_defecto, mensaje_estado="Sin salidas"
             )
     
         total = info_db["total_salidas"]
     
-        # 2. Lógica de "Foto Actual" (Lo último que se completó)
-        # Si total es 20: (20-1)//5 = 3. 3+1 = Ciclo 4.
-        # Si total es 20: (20-1)%5 = 4. 4+1 = Fila 5.
+        # Estado Actual (Lo último hecho)
         actual_ciclo = ((total - 1) // 5) + 1
         actual_fila = ((total - 1) % 5) + 1
     
-        # 3. Nombre de planilla y Año (desde DB o por defecto)
-        nombre = info_db["nombre_planilla"] or "Planilla sin nombre"
-        anio_val = info_db["anio"] or date.today().year
+        # Estado Siguiente (Lo que viene de la DB)
+        # Si la DB no tiene el dato, sumamos 1 a la fila actual
+        sig_ciclo = info_db.get("ciclo_actual") or (actual_ciclo + 1 if actual_fila == 5 else actual_ciclo)
+        sig_fila = info_db.get("fila_actual") or (1 if actual_fila == 5 else actual_fila + 1)
     
         return TerritorioPlanillaInfo(
             numero=numero,
             total_salidas=total,
             ciclo_actual=actual_ciclo,
             fila_actual=actual_fila,
-            nombre_planilla=nombre,
-            anio=anio_val,
+            proximo_ciclo=sig_ciclo, # <--- Agregado
+            proxima_fila=sig_fila,   # <--- Agregado
+            nombre_planilla=info_db.get("nombre_planilla") or "Planilla sin nombre",
+            anio=info_db.get("anio") or anio_defecto,
             mensaje_estado=f"Ciclo {actual_ciclo} - Fila {actual_fila}/5"
         )
