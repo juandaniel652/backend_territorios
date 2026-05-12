@@ -223,31 +223,31 @@ class TerritorioService:
     # ── Planillas ──────────────────────────
     
     def obtener_estado_planilla(self, numero: int) -> TerritorioPlanillaInfo:
-        # 1. El repo consulta la VISTA (que ya tiene los JOINS y cálculos)
         info_db = self.repo.obtener_estado_detallado(numero)
-        
+
+        # Calculamos un año por defecto por si la DB viene vacía
+        hoy = date.today()
+        anio_defecto = hoy.year + 1 if hoy.month >= 9 else hoy.year
+
         if not info_db or info_db["total_salidas"] == 0:
-            hoy = date.today()
-            # Regla de Septiembre para el "Año de Servicio"
-            anio_servicio = hoy.year + 1 if hoy.month >= 9 else hoy.year
-            
             return TerritorioPlanillaInfo(
                 numero=numero,
                 total_salidas=0,
                 ciclo_actual=1,
                 fila_actual=1,
                 nombre_planilla="Pendiente de inicio",
-                anio=anio_servicio,
+                anio=anio_defecto, # Usamos el calculado
                 mensaje_estado="Sin salidas registradas"
             )
-    
-        # 2. Mapeo de la "Verdad Absoluta" desde la DB
+
+        # ── AQUÍ ESTÁ EL FIX ──
+        # Usamos .get() o validamos que no sea None antes de mandarlo al Schema
         return TerritorioPlanillaInfo(
             numero=numero,
-            total_salidas=info_db["total_salidas"],
-            ciclo_actual=info_db["ciclo_actual"],
-            fila_actual=info_db["fila_actual"],
+            total_salidas=info_db["total_salidas"] or 0,
+            ciclo_actual=info_db["ciclo_actual"] or 1,
+            fila_actual=info_db["fila_actual"] or 1,
             nombre_planilla=info_db["nombre_planilla"] or "Planilla sin nombre",
-            anio=info_db["anio"],
-            mensaje_estado=f"Ciclo {info_db['ciclo_actual']} - Fila {info_db['fila_actual']}/5"
+            anio=info_db["anio"] if info_db["anio"] is not None else anio_defecto, # <--- Evita el error
+            mensaje_estado=f"Ciclo {info_db['ciclo_actual'] or 1} - Fila {info_db['fila_actual'] or 1}/5"
         )
