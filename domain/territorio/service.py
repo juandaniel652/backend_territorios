@@ -224,30 +224,36 @@ class TerritorioService:
     
     def obtener_estado_planilla(self, numero: int) -> TerritorioPlanillaInfo:
         info_db = self.repo.obtener_estado_detallado(numero)
-
-        # Calculamos un año por defecto por si la DB viene vacía
-        hoy = date.today()
-        anio_defecto = hoy.year + 1 if hoy.month >= 9 else hoy.year
-
+        
+        # 1. Blindaje para territorios nuevos
         if not info_db or info_db["total_salidas"] == 0:
+            hoy = date.today()
+            anio_defecto = hoy.year + 1 if hoy.month >= 9 else hoy.year
             return TerritorioPlanillaInfo(
-                numero=numero,
-                total_salidas=0,
-                ciclo_actual=1,
-                fila_actual=1,
-                nombre_planilla="Pendiente de inicio",
-                anio=anio_defecto, # Usamos el calculado
-                mensaje_estado="Sin salidas registradas"
+                numero=numero, total_salidas=0,
+                ciclo_actual=1, fila_actual=0, # 0 indica que no empezó
+                nombre_planilla="Sin iniciar",
+                anio=anio_defecto, mensaje_estado="Sin salidas"
             )
-
-        # ── AQUÍ ESTÁ EL FIX ──
-        # Usamos .get() o validamos que no sea None antes de mandarlo al Schema
+    
+        total = info_db["total_salidas"]
+    
+        # 2. Lógica de "Foto Actual" (Lo último que se completó)
+        # Si total es 20: (20-1)//5 = 3. 3+1 = Ciclo 4.
+        # Si total es 20: (20-1)%5 = 4. 4+1 = Fila 5.
+        actual_ciclo = ((total - 1) // 5) + 1
+        actual_fila = ((total - 1) % 5) + 1
+    
+        # 3. Nombre de planilla y Año (desde DB o por defecto)
+        nombre = info_db["nombre_planilla"] or "Planilla sin nombre"
+        anio_val = info_db["anio"] or date.today().year
+    
         return TerritorioPlanillaInfo(
             numero=numero,
-            total_salidas=info_db["total_salidas"] or 0,
-            ciclo_actual=info_db["ciclo_actual"] or 1,
-            fila_actual=info_db["fila_actual"] or 1,
-            nombre_planilla=info_db["nombre_planilla"] or "Planilla sin nombre",
-            anio=info_db["anio"] if info_db["anio"] is not None else anio_defecto, # <--- Evita el error
-            mensaje_estado=f"Ciclo {info_db['ciclo_actual'] or 1} - Fila {info_db['fila_actual'] or 1}/5"
+            total_salidas=total,
+            ciclo_actual=actual_ciclo,
+            fila_actual=actual_fila,
+            nombre_planilla=nombre,
+            anio=anio_val,
+            mensaje_estado=f"Ciclo {actual_ciclo} - Fila {actual_fila}/5"
         )

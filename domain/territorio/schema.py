@@ -90,8 +90,15 @@ class PlanQuincenalOut(BaseModel):
 class TerritorioPlanillaInfo(BaseModel):
     numero: int
     total_salidas: int
+    
+    # Lo que ya se hizo
     ciclo_actual: int
     fila_actual: int
+    
+    # Lo que viene (para la UI)
+    proximo_ciclo: int
+    proxima_fila: int
+    
     nombre_planilla: str
     anio: int
     mensaje_estado: str
