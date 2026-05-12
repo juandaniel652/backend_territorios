@@ -227,33 +227,36 @@ class TerritorioService:
         hoy = date.today()
         anio_defecto = hoy.year + 1 if hoy.month >= 9 else hoy.year
     
-        if not info_db or info_db["total_salidas"] == 0:
+        if not info_db or info_db.get("total_salidas", 0) == 0:
             return TerritorioPlanillaInfo(
                 numero=numero, total_salidas=0,
                 ciclo_actual=1, fila_actual=0, 
-                proximo_ciclo=1, proxima_fila=1, # <--- Agregado
+                proximo_ciclo=1, proxima_fila=1,
                 nombre_planilla="Sin iniciar",
                 anio=anio_defecto, mensaje_estado="Sin salidas"
             )
     
         total = info_db["total_salidas"]
     
-        # Estado Actual (Lo último hecho)
+        # --- ESTADO ACTUAL (Lo último que se hizo) ---
         actual_ciclo = ((total - 1) // 5) + 1
         actual_fila = ((total - 1) % 5) + 1
     
-        # Estado Siguiente (Lo que viene de la DB)
-        # Si la DB no tiene el dato, sumamos 1 a la fila actual
-        sig_ciclo = info_db.get("ciclo_actual") or (actual_ciclo + 1 if actual_fila == 5 else actual_ciclo)
-        sig_fila = info_db.get("fila_actual") or (1 if actual_fila == 5 else actual_fila + 1)
+        # --- LÓGICA DEL PRÓXIMO PASO (El salto) ---
+        if actual_fila == 5:
+            sig_ciclo = actual_ciclo + 1
+            sig_fila = 1
+        else:
+            sig_ciclo = actual_ciclo
+            sig_fila = actual_fila + 1
     
         return TerritorioPlanillaInfo(
             numero=numero,
             total_salidas=total,
             ciclo_actual=actual_ciclo,
             fila_actual=actual_fila,
-            proximo_ciclo=sig_ciclo, # <--- Agregado
-            proxima_fila=sig_fila,   # <--- Agregado
+            proximo_ciclo=sig_ciclo,
+            proxima_fila=sig_fila,
             nombre_planilla=info_db.get("nombre_planilla") or "Planilla sin nombre",
             anio=info_db.get("anio") or anio_defecto,
             mensaje_estado=f"Ciclo {actual_ciclo} - Fila {actual_fila}/5"
