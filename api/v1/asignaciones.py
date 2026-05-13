@@ -21,18 +21,30 @@ from domain.territorio.repository import TerritorioRepository
 from domain.asignacion.schema import AgendaConfirmar
 from domain.salida.repository import SalidaRepository
 from domain.asignacion.schema import AgendaConfirmar
+from domain.territorio.service import TerritorioService
+from domain.planilla.repository import PlanillaRepository
 
 
 router = APIRouter(prefix="/asignaciones", tags=["asignaciones"])
 
 
 def get_asignacion_service(db: Session = Depends(get_db)) -> AsignacionService:
+    # Necesitamos estos para la automatización
+    territorio_repo = TerritorioRepository(db)
+    planilla_repo = PlanillaRepository(db)
+    
+    # El territorio_service nos ayuda a calcular el estado actual
+    territorio_service = TerritorioService(territorio_repo, planilla_repo)
+
     return AsignacionService(
         db=db,
         asignacion_repo=AsignacionRepository(db),
-        territorio_repo=TerritorioRepository(db),
+        territorio_repo=territorio_repo,
         conductor_repo=ConductorRepository(db),
         salida_repo=SalidaRepository(db),
+        # --- AGREGADOS ---
+        planilla_repo=planilla_repo,
+        territorio_service=territorio_service
     )
 
 

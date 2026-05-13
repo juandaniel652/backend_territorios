@@ -22,8 +22,10 @@ from domain.asignacion.schema import AgendaConfirmar
 from domain.asignacion.model import Asignacion
 from domain.salida.repository import SalidaRepository
 from domain.salida.model import Salida
-
+from domain.planilla.repository import PlanillaRepository
+from domain.territorio.service import TerritorioService
 from domain.asignacion.response_builder import AgendaResponseBuilder
+from core.utils import obtener_anio_servicio
 
 
 class AsignacionService:
@@ -31,16 +33,21 @@ class AsignacionService:
     def __init__(
         self,
         db: Session,
-        asignacion_repo: AsignacionRepositoryProtocol,
+        planilla_repo: PlanillaRepository,
+        territorio_service: TerritorioService,
+        asignacion_repo: TerritorioRepositoryProtocol, 
         territorio_repo: TerritorioRepositoryProtocol,
         conductor_repo: ConductorRepositoryProtocol,
         salida_repo: SalidaRepository,
     ) -> None:
         self.db = db
+        self.planilla_repo = planilla_repo
+        self.territorio_service = territorio_service
         self.asignacion_repo = asignacion_repo
         self.territorio_repo = territorio_repo
         self.conductor_repo  = conductor_repo
         self.salida_repo = salida_repo
+        
 
     def crear_asignacion(self, data: AsignacionCreate) -> AsignacionCreatedOut:
         try:
@@ -68,17 +75,20 @@ class AsignacionService:
                 fila=fila
             )
 
-            # ─── AQUÍ VA EL PUNTO 2 (EL IMPACTO) ───
-            # Si el usuario ya marcó la fecha de completado al crearla:
+            # ─── IMPACTO Y AUTOMATIZACIÓN ───
             if data.fecha_completado:
+                # Actualizamos la fecha en el territorio (tu lógica original)
                 self.territorio_repo.actualizar_fecha_terminado(
                     territorio_id=territorio.id,
                     fecha=data.fecha_completado
                 )
-            # ────────────────────────────────────────
+                # ¡NUEVO! Chequeamos si al crearla ya cerró un ciclo
+                # Hacemos commit antes para que el service vea el nuevo conteo
+                self.db.commit() 
+                self._verificar_y_crear_proxima_planilla(territorio.id)
+            else:
+                self.db.commit()
 
-            # 5. Guardado final y refresco
-            self.db.commit()
             self.db.refresh(asignacion)
 
         except Exception as e:
@@ -92,24 +102,11 @@ class AsignacionService:
         )
 
     # ── NUEVO: Actualizar ────────────────────────────────────────────────────
-    def actualizar_asignacion(
-        self, asignacion_id: int, data: AsignacionUpdate
-    ) -> AsignacionUpdatedOut:
-        """
-        Actualiza solo los campos presentes en el payload.
-        Si el conductor cambia, se resuelve por nombre (obtener_o_crear).
-
-        Raises:
-            404: asignación no encontrada.
-            500: error de transacción.
-        """
+    def actualizar_asignacion(self, asignacion_id: int, data: AsignacionUpdate) -> AsignacionUpdatedOut:
         try:
             asignacion = self.asignacion_repo.obtener_por_id(asignacion_id)
             if not asignacion:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Asignación {asignacion_id} no encontrada",
-                )
+                raise HTTPException(status_code=404, detail=f"Asignación {asignacion_id} no encontrada")
 
             # Resolver conductor solo si cambió
             nuevo_conductor_id = None
@@ -117,14 +114,24 @@ class AsignacionService:
                 conductor, _ = self.conductor_repo.obtener_o_crear(data.conductor)
                 nuevo_conductor_id = conductor.id
 
-            self.asignacion_repo.actualizar(
+            # Guardamos el estado anterior para saber si ya estaba completada
+            ya_estaba_completada = asignacion.fecha_completado is not None
+
+            updated_asignacion = self.asignacion_repo.actualizar(
                 asignacion=asignacion,
                 conductor_id=nuevo_conductor_id,
                 fecha_asignado=data.fecha_asignado,
                 fecha_completado=data.fecha_completado,
                 cantidad_abarcado=data.cantidad_abarcado,
             )
-            self.db.commit()
+            
+            # ¡AUTOMATIZACIÓN! 
+            # Si NO estaba completada y AHORA sí tiene fecha_completado
+            if not ya_estaba_completada and data.fecha_completado:
+                self.db.commit() # Confirmamos para que el conteo de salidas sea correcto
+                self._verificar_y_crear_proxima_planilla(updated_asignacion.territorio_id)
+            else:
+                self.db.commit()
 
         except HTTPException:
             self.db.rollback()
@@ -139,6 +146,29 @@ class AsignacionService:
         )
         
     # Agregar a AsignacionService
+    
+    def _verificar_y_crear_proxima_planilla(self, territorio_id: int):
+        # Usamos el service que ya perfeccionamos para ver los números reales
+        estado = self.territorio_service.obtener_estado_planilla(territorio_id)
+
+        # SI EL TOTAL ES MÚLTIPLO DE 5 (ej: 20), significa que acabamos de terminar la última fila
+        if estado.total_salidas % 5 == 0:
+            # Buscamos la zona del territorio
+            zona = self.territorio_repo.obtener_zona(territorio_id)
+            
+            # Generamos el nombre dinámico para el PRÓXIMO ciclo
+            proximo_ciclo = estado.proximo_ciclo
+            nuevo_nombre = self.territorio_service.obtener_nombre_dinamico(zona, proximo_ciclo)
+            
+            # Guardamos en nombres_planillas para que ya quede "firme" en la DB
+            from core.utils import obtener_anio_servicio
+            self.planilla_repo.crear_planilla(
+                zona=zona,
+                ciclo=proximo_ciclo,
+                nombre_planilla=nuevo_nombre,
+                anio=obtener_anio_servicio()
+            )
+            print(f"DEBUG: Se creó automáticamente la planilla {nuevo_nombre} para el ciclo {proximo_ciclo}")
 
     def confirmar_agenda_masiva(self, data: AgendaConfirmar) -> dict:
         resultado = self.resolver_agenda(data.items)
@@ -488,3 +518,34 @@ class AsignacionService:
             ]
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error al obtener sugerencias: {str(e)}")
+        
+    
+    #____ Planilla ____________________________________________________________
+
+    def completar_asignacion(self, asignacion_id: int):
+        # 1. Marcamos la asignación como completada en la DB
+        asignacion = self.repo.completar(asignacion_id)
+
+        # 2. Obtenemos el estado actual del territorio para ver si cerró ciclo
+        # (Usamos el service de territorio que ya calcula el total_salidas)
+        estado = self.territorio_service.obtener_estado_planilla(asignacion.territorio_id)
+
+        # 3. SI EL TOTAL ES MÚLTIPLO DE 5, ¡CERRAMOS PLANILLA!
+        if estado.total_salidas % 5 == 0:
+            self.automatizar_nueva_planilla(estado)
+
+    def automatizar_nueva_planilla(self, estado):
+        # Calculamos los datos de la PRÓXIMA planilla
+        proximo_ciclo = estado.proximo_ciclo 
+        zona = self.territorio_repo.obtener_zona(estado.numero)
+
+        # Generamos el nombre con el service de planilla
+        nuevo_nombre = self.planilla_service.obtener_nombre_dinamico(zona, proximo_ciclo)
+
+        # Guardamos en la tabla 'nombres_planillas'
+        self.planilla_repo.crear_planilla(
+            zona=zona,
+            ciclo=proximo_ciclo,
+            nombre_planilla=nuevo_nombre,
+            anio=obtener_anio_servicio()
+        )

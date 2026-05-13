@@ -33,6 +33,8 @@ from domain.territorio.schema import (
     TerritorioPlanillaInfo
 )
 
+from domain.planilla.service import obtener_anio_servicio
+
 # ─────────────────────────────────────────────
 # Configuración de rangos válidos y cache
 # ─────────────────────────────────────────────
@@ -225,8 +227,8 @@ class TerritorioService:
     def obtener_estado_planilla(self, numero: int) -> TerritorioPlanillaInfo:
         info_db = self.repo.obtener_estado_detallado(numero)
         hoy = date.today()
-        anio_defecto = hoy.year + 1 if hoy.month >= 9 else hoy.year
-    
+        anio_defecto = obtener_anio_servicio(hoy)
+
         if not info_db or info_db.get("total_salidas", 0) == 0:
             return TerritorioPlanillaInfo(
                 numero=numero, total_salidas=0,
@@ -235,13 +237,13 @@ class TerritorioService:
                 nombre_planilla="Sin iniciar",
                 anio=anio_defecto, mensaje_estado="Sin salidas"
             )
-    
+
         total = info_db["total_salidas"]
-    
+
         # --- ESTADO ACTUAL (Lo último que se hizo) ---
         actual_ciclo = ((total - 1) // 5) + 1
         actual_fila = ((total - 1) % 5) + 1
-    
+
         # --- LÓGICA DEL PRÓXIMO PASO (El salto) ---
         if actual_fila == 5:
             sig_ciclo = actual_ciclo + 1
@@ -249,7 +251,17 @@ class TerritorioService:
         else:
             sig_ciclo = actual_ciclo
             sig_fila = actual_fila + 1
-    
+            
+        # --- LÓGICA DE NOMBRE DINÁMICO INTEGRADA ---
+        nombre_planilla = info_db.get("nombre_planilla")
+        anio_planilla = info_db.get("anio") or anio_defecto
+
+        if not nombre_planilla or nombre_planilla == "Planilla sin nombre":
+            # Necesitamos la zona para nombrar. 
+            # Si la vista no la trae, la pedimos al repo.
+            zona = info_db.get("zona") or self.repo.obtener_zona_de_territorio(numero)
+            nombre_planilla = self.obtener_nombre_dinamico(zona, actual_ciclo)
+
         return TerritorioPlanillaInfo(
             numero=numero,
             total_salidas=total,
@@ -261,3 +273,17 @@ class TerritorioService:
             anio=info_db.get("anio") or anio_defecto,
             mensaje_estado=f"Ciclo {actual_ciclo} - Fila {actual_fila}/5"
         )
+
+    def obtener_nombre_dinamico(self, zona: int, ciclo: int):
+        anio_actual = obtener_anio_servicio()
+        
+        # IMPORTANTE: contar solo las planillas de esta zona EN ESTE AÑO
+        conteo_anio = self.repo_planilla.contar_planillas_por_anio(zona, anio_actual)
+        
+        numero_vocal = conteo_anio + 1
+        
+        # Mapeo de rangos
+        nombres_rangos = {1: "Casas 1-20", 2: "Casas 21-40", 3: "Casas 41-60"}
+        rango = nombres_rangos.get(zona, f"Zona {zona}")
+        
+        return f"{numero_vocal}° Planilla, {rango}; ({anio_actual})"
