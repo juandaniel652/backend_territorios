@@ -1,5 +1,5 @@
 from sqlalchemy import text
-from core.database import Session
+from sqlalchemy.orm import Session
 
 class PlanillaRepository:
     def __init__(self, db: Session):

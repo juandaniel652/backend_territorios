@@ -13,6 +13,9 @@ from domain.territorio.repository import TerritorioRepository
 from domain.conductor.repository import ConductorRepository
 from domain.salida.repository import SalidaRepository
 
+from domain.planilla.repository import PlanillaRepository # Nuevo import
+from domain.territorio.service import TerritorioService
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 CurrentUser = dict
@@ -28,14 +31,20 @@ DatabaseDep = Depends(get_db)
 
 # ── NUEVA DEPENDENCIA: Factoría de AsignacionService ────────────────────────
 def get_asignacion_service(db: Session = Depends(get_db)) -> AsignacionService:
-    """
-    Construye el AsignacionService con todos sus repositorios.
-    Permite que cualquier router (como territorios.py) use la lógica de asignación.
-    """
+    # 1. Instanciamos los repositorios necesarios
+    territorio_repo = TerritorioRepository(db)
+    planilla_repo = PlanillaRepository(db)
+    
+    # 2. Instanciamos el TerritorioService (que el AsignacionService necesita para la lógica de planillas)
+    territorio_service = TerritorioService(territorio_repo, planilla_repo)
+
+    # 3. Construimos el AsignacionService con TODO lo que pide su __init__
     return AsignacionService(
         db=db,
+        planilla_repo=planilla_repo,
+        territorio_service=territorio_service,
         asignacion_repo=AsignacionRepository(db),
-        territorio_repo=TerritorioRepository(db),
+        territorio_repo=territorio_repo,
         conductor_repo=ConductorRepository(db),
         salida_repo=SalidaRepository(db)
     )

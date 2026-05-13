@@ -34,6 +34,7 @@ from domain.territorio.schema import (
 )
 
 from domain.planilla.service import obtener_anio_servicio
+from domain.planilla.repository import PlanillaRepository
 
 # ─────────────────────────────────────────────
 # Configuración de rangos válidos y cache
@@ -88,8 +89,9 @@ class TerritorioService:
     Depende del protocolo → no del repositorio concreto (DI).
     """
 
-    def __init__(self, repo: TerritorioRepositoryProtocol) -> None:
+    def __init__(self, repo: TerritorioRepositoryProtocol, planilla_repo: PlanillaRepository = None) -> None:
         self.repo = repo
+        self.planilla_repo = planilla_repo
 
     # ── Historial ────────────────────────────
 
@@ -276,14 +278,14 @@ class TerritorioService:
 
     def obtener_nombre_dinamico(self, zona: int, ciclo: int):
         anio_actual = obtener_anio_servicio()
-        
+
         # IMPORTANTE: contar solo las planillas de esta zona EN ESTE AÑO
         conteo_anio = self.repo_planilla.contar_planillas_por_anio(zona, anio_actual)
-        
+
         numero_vocal = conteo_anio + 1
-        
+
         # Mapeo de rangos
         nombres_rangos = {1: "Casas 1-20", 2: "Casas 21-40", 3: "Casas 41-60"}
         rango = nombres_rangos.get(zona, f"Zona {zona}")
-        
+
         return f"{numero_vocal}° Planilla, {rango}; ({anio_actual})"
