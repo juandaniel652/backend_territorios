@@ -286,12 +286,45 @@ class TerritorioService:
         )
     
     def obtener_nombre_dinamico(self, zona: int, ciclo: int):
-        anio_actual = obtener_anio_servicio()
-        # Usamos self.planilla_repo que guardamos en el __init__
-        conteo_anio = self.planilla_repo.contar_planillas_por_anio(zona, anio_actual)
-        
-        numero_vocal = conteo_anio + 1
-        nombres_rangos = {1: "Casas 1-20", 2: "Casas 21-40", 3: "Casas 41-60"}
-        rango = nombres_rangos.get(zona, f"Zona {zona}")
+        # --- BLOQUE 1: MAPEADO HISTÓRICO ---
+        # Estos son los ciclos que ya tienen un nombre asignado por vos.
+        nombres_fijos = {
+            1: {
+                1: '1° Planilla, Casas 1-20; (2025)',
+                2: '2° Planilla, Casas 1-20; (2025)',
+                3: '3° Planilla, Casas 1-20; (2025)',
+                4: '1° Planilla, Casas 1-20; (2026)'
+            },
+            2: {
+                5: '2° Planilla, Casas 21-40; (2024)',
+                6: '3° Planilla, Casas 21-40; (2024)',
+                7: '4° Planilla, Casas 21-40; (2024)',
+                8: '1° Planilla, Casas 21-40; (2025)',
+                9: '1° Planilla, Casas 21-40; (2026)',
+                10: '2° Planilla, Casas 21-40; (2026)'
+            },
+            3: {
+                11: '1° Planilla, Casas 41-60; (2024)',
+                12: '2° Planilla, Casas 41-60; (2024)',
+                13: '1⁰ Planilla, Casas 41-60; (2025)',
+                14: '1ª Planilla, Casas 41-60; (2026)'
+            }
+        }
 
-        return f"{numero_vocal}° Planilla, {rango}; ({anio_actual})"
+        # Intentamos obtener el nombre fijo
+        nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
+        if nombre_mapeado:
+            return nombre_mapeado
+
+        # --- BLOQUE 2: INTELIGENCIA AUTOMÁTICA (OCTUBRE/FUTURO) ---
+        # Si el ciclo no está en el mapa (ej: ciclo 15 en adelante), el sistema decide solo.
+        anio_servicio = obtener_anio_servicio() # Esto ya sabe si es 2026, 2027, etc.
+        
+        # Contamos cuántas planillas reales tiene esta zona en el año de servicio actual
+        conteo_en_db = self.planilla_repo.contar_planillas_por_anio(zona, anio_actual=anio_servicio)
+        
+        numero_vocal = conteo_en_db + 1
+        rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
+        rango_txt = rangos.get(zona, f"Zona {zona}")
+
+        return f"{numero_vocal}° Planilla, Casas {rango_txt}; ({anio_servicio})"
