@@ -31,6 +31,7 @@ from typing import List
 from api.deps import get_asignacion_service
 from domain.asignacion.service import AsignacionService
 from domain.asignacion.schema import AgendaConfirmar
+from domain.planilla.repository import PlanillaRepository # Nuevo import para el repo de planillas
 
 
 
@@ -43,7 +44,10 @@ router = APIRouter(prefix="/territorios", tags=["territorios"])
 
 def get_territorio_service(db: Session = Depends(get_db)) -> TerritorioService:
     repo = TerritorioRepository(db)
-    return TerritorioService(repo)
+    planilla_repo = PlanillaRepository(db) # <--- AGREGÁ ESTO
+    
+    # Pasale el planilla_repo para que pueda calcular los nombres 2026
+    return TerritorioService(repo, planilla_repo=planilla_repo)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────

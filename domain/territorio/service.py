@@ -231,9 +231,14 @@ class TerritorioService:
         anio_actual = obtener_anio_servicio(hoy) # 2026 si estamos en mayo
 
         if not info_db or info_db.get("total_salidas", 0) == 0:
-            # Si no empezó, ya le calculamos el nombre que tendría la primera
-            # Asumiendo que la vista ahora nos da la zona
-            zona = info_db.get("zona") if info_db else 1 
+            # --- MEJORA AQUÍ ---
+            # Si no hay info_db, intentamos sacar la zona del repo directamente
+            if info_db:
+                zona = info_db.get("zona", 1)
+            else:
+                # Si el territorio es nuevo y no está en la vista, le preguntamos al repo la zona
+                zona = self.repo.obtener_zona_de_territorio(numero) or 1
+            
             nombre_ini = self.obtener_nombre_dinamico(zona, 1)
             
             return TerritorioPlanillaInfo(
@@ -282,13 +287,10 @@ class TerritorioService:
     
     def obtener_nombre_dinamico(self, zona: int, ciclo: int):
         anio_actual = obtener_anio_servicio()
-
-        # IMPORTANTE: contar solo las planillas de esta zona EN ESTE AÑO
-        conteo_anio = self.repo_planilla.contar_planillas_por_anio(zona, anio_actual)
-
+        # Usamos self.planilla_repo que guardamos en el __init__
+        conteo_anio = self.planilla_repo.contar_planillas_por_anio(zona, anio_actual)
+        
         numero_vocal = conteo_anio + 1
-
-        # Mapeo de rangos
         nombres_rangos = {1: "Casas 1-20", 2: "Casas 21-40", 3: "Casas 41-60"}
         rango = nombres_rangos.get(zona, f"Zona {zona}")
 
