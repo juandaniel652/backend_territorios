@@ -250,17 +250,16 @@ class TerritorioRepository:
             territorio.ultima_fecha_completado = fecha
     
     def obtener_estado_detallado(self, numero: int):
-        # El query debe usar los nombres de columnas que definimos en la VIEW
+        # Usamos alias (AS) para que el Service encuentre "total_salidas"
         query = """
             SELECT 
-                total_completados, 
+                total_completados AS total_salidas, 
                 ciclo_actual,
-                proxima_fila as fila_actual, -- Mapeamos proxima_fila a lo que espera el objeto
-                nombre_planilla_actual as nombre_planilla,
-                anio_planilla_actual as anio
+                proxima_fila,
+                nombre_planilla,
+                anio
             FROM vista_estado_territorios
             WHERE territorio = :num
         """
-        # Usamos .mappings() para que SQLAlchemy devuelva un diccionario compatible
         result = self.db.execute(text(query), {"num": numero}).mappings().first()
         return result
