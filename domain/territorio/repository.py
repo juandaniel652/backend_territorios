@@ -250,14 +250,12 @@ class TerritorioRepository:
             territorio.ultima_fecha_completado = fecha
     
     def obtener_estado_detallado(self, numero: int):
-        # Usamos alias (AS) para que el Service encuentre "total_salidas"
         query = """
             SELECT 
                 total_completados AS total_salidas, 
                 ciclo_actual,
                 proxima_fila,
-                nombre_planilla,
-                anio
+                zona  -- <--- Ahora el repo lee la zona de la vista
             FROM vista_estado_territorios
             WHERE territorio = :num
         """

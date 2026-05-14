@@ -228,40 +228,58 @@ class TerritorioService:
     def obtener_estado_planilla(self, numero: int) -> TerritorioPlanillaInfo:
         info_db = self.repo.obtener_estado_detallado(numero)
         hoy = date.today()
-        anio_defecto = obtener_anio_servicio(hoy)
+        anio_actual = obtener_anio_servicio(hoy) # 2026 si estamos en mayo
 
-        # Si no hay datos o total_salidas es 0 (ahora sí lo va a encontrar)
         if not info_db or info_db.get("total_salidas", 0) == 0:
+            # Si no empezó, ya le calculamos el nombre que tendría la primera
+            # Asumiendo que la vista ahora nos da la zona
+            zona = info_db.get("zona") if info_db else 1 
+            nombre_ini = self.obtener_nombre_dinamico(zona, 1)
+            
             return TerritorioPlanillaInfo(
                 numero=numero, total_salidas=0,
                 ciclo_actual=1, fila_actual=0, 
                 proximo_ciclo=1, proxima_fila=1,
-                nombre_planilla="Sin iniciar",
-                anio=anio_defecto, mensaje_estado="Sin salidas"
+                nombre_planilla=nombre_ini,
+                anio=anio_actual, mensaje_estado="Sin salidas"
             )
 
-        # Extraemos los valores que vienen de la VIEW
         total = info_db["total_salidas"]
-        actual_ciclo = info_db["ciclo_actual"]
-        
-        # Mapeamos proxima_fila de la DB
-        prox_fila_db = info_db["proxima_fila"]
+        actual_ciclo = ((total - 1) // 5) + 1
+        actual_fila = ((total - 1) % 5) + 1
+        zona = info_db.get("zona")
 
-        # Lógica de mensaje
-        fila_actual_calc = ((total - 1) % 5) + 1
+        # --- DETERMINAR EL NOMBRE ---
+        # Si la DB trae un nombre genérico como "Planilla X", lo ignoramos 
+        # y usamos nuestra lógica dinámica.
+        nombre_db = info_db.get("nombre_planilla")
+        
+        if not nombre_db or "Planilla" in nombre_db: 
+            # Aquí entra la inteligencia que cuenta planillas en el año de servicio
+            nombre_planilla = self.obtener_nombre_dinamico(zona, actual_ciclo)
+        else:
+            nombre_planilla = nombre_db
+
+        # --- LÓGICA DEL SALTO ---
+        if actual_fila == 5:
+            sig_ciclo = actual_ciclo + 1
+            sig_fila = 1
+        else:
+            sig_ciclo = actual_ciclo
+            sig_fila = actual_fila + 1
 
         return TerritorioPlanillaInfo(
             numero=numero,
             total_salidas=total,
             ciclo_actual=actual_ciclo,
-            fila_actual=fila_actual_calc,
-            proximo_ciclo=actual_ciclo if prox_fila_db > 1 else actual_ciclo + 1,
-            proxima_fila=prox_fila_db,
-            nombre_planilla=info_db.get("nombre_planilla") or "Planilla sin nombre",
-            anio=info_db.get("anio") or anio_defecto,
-            mensaje_estado=f"Ciclo {actual_ciclo} - Fila {fila_actual_calc}/5"
+            fila_actual=actual_fila,
+            proximo_ciclo=sig_ciclo,
+            proxima_fila=sig_fila,
+            nombre_planilla=nombre_planilla, # <--- USAMOS LA VARIABLE CALCULADA
+            anio=info_db.get("anio") or anio_actual,
+            mensaje_estado=f"Ciclo {actual_ciclo} - Fila {actual_fila}/5"
         )
-        
+    
     def obtener_nombre_dinamico(self, zona: int, ciclo: int):
         anio_actual = obtener_anio_servicio()
 
