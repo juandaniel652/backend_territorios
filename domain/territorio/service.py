@@ -314,10 +314,21 @@ class TerritorioService:
         if nombre_mapeado:
             return nombre_mapeado
 
+        # 2. INTELIGENCIA PARA EL FUTURO INFINITO
         anio_servicio = obtener_anio_servicio()
-        conteo_en_db = self.planilla_repo.contar_planillas_por_anio(zona, anio_servicio)
         
-        numero_vocal = conteo_en_db + 1
+        # Buscamos el ciclo más bajo de esta zona para el año actual.
+        # Ejemplo Zona 1: El primer ciclo del 2026 fue el 4.
+        # Si estamos procesando el Ciclo 5: (5 - 4) + 1 = 2° Planilla.
+        
+        ciclo_inicial_anio = self.planilla_repo.obtener_primer_ciclo_del_anio(zona, anio_servicio)
+        
+        if ciclo_inicial_anio:
+            numero_vocal = (ciclo - ciclo_inicial_anio) + 1
+        else:
+            # Si es la primerísima planilla que se crea en el año (ej: Octubre 2026 para el año 2027)
+            numero_vocal = 1
+
         rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
         rango_txt = rangos.get(zona, f"Zona {zona}")
 

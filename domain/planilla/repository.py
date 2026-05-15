@@ -4,6 +4,14 @@ from sqlalchemy.orm import Session
 class PlanillaRepository:
     def __init__(self, db: Session):
         self.db = db
+        
+    def obtener_primer_ciclo_del_anio(self, zona: int, anio: int) -> int:
+        query = text("""
+            SELECT MIN(ciclo) FROM nombres_planillas 
+            WHERE zona = :zona AND anio = :anio
+        """)
+        result = self.db.execute(query, {"zona": zona, "anio": anio}).scalar()
+        return result # Devuelve el número de ciclo más bajo o None
 
     def contar_planillas_por_anio(self, zona: int, anio: int) -> int:
         # Usamos SQL puro con text para evitar el NameError del modelo
