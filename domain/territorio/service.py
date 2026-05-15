@@ -226,7 +226,7 @@ class TerritorioService:
     
     # ── Planillas ──────────────────────────
     def obtener_estado_planilla(self, numero: int) -> TerritorioPlanillaInfo:
-        
+    
         info_db = self.repo.obtener_estado_detallado(numero)
         hoy = date.today()
         anio_actual = obtener_anio_servicio(hoy) # 2026 si estamos en mayo
@@ -285,10 +285,9 @@ class TerritorioService:
             anio=info_db.get("anio") or anio_actual,
             mensaje_estado=f"Ciclo {actual_ciclo} - Fila {actual_fila}/5"
         )
-    
+        
     def obtener_nombre_dinamico(self, zona: int, ciclo: int):
-        # --- MAPEO CORREGIDO ---
-        # Ajustamos los números de ciclo para que coincidan con lo que devuelve la VIEW
+        # 1. MAPEADO HISTÓRICO: Lo que ya pasó y tiene nombre especial
         nombres_fijos = {
             1: { # Zona 1
                 1: '1° Planilla, Casas 1-20; (2025)',
@@ -302,7 +301,7 @@ class TerritorioService:
                 3: '4° Planilla, Casas 21-40; (2024)',
                 4: '1° Planilla, Casas 21-40; (2025)',
                 5: '1° Planilla, Casas 21-40; (2026)',
-                6: '2° Planilla, Casas 21-40; (2026)' # <--- Ahora el 6 es 2026
+                6: '2° Planilla, Casas 21-40; (2026)'
             },
             3: { # Zona 3
                 1: '1° Planilla, Casas 41-60; (2024)',
@@ -312,58 +311,19 @@ class TerritorioService:
             }
         }
 
-        # Buscamos en el mapa
         nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
         if nombre_mapeado:
             return nombre_mapeado
 
-        # --- LÓGICA PARA EL FUTURO (Ciclo 7, 8, etc.) ---
+        # 2. LÓGICA AUTOMÁTICA (Para ciclos que no están arriba)
         anio_servicio = obtener_anio_servicio()
+        
+        # Contamos cuántas planillas hay en la DB para esta zona y año
         conteo_en_db = self.planilla_repo.contar_planillas_por_anio(zona, anio_servicio)
         
-        # Si ya existen la 1° y 2° de 2026, el conteo será 2, entonces toca la 3°
-        numero_vocal = conteo_en_db + 1
-        
-        rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
-        rango_txt = rangos.get(zona, f"Zona {zona}")
-
-        return f"{numero_vocal}° Planilla, Casas {rango_txt}; ({anio_servicio})"
-        # --- BLOQUE 1: MAPEADO HISTÓRICO ---
-        # Estos son los ciclos que ya tienen un nombre asignado por vos.
-        nombres_fijos = {
-            1: {
-                1: '1° Planilla, Casas 1-20; (2025)',
-                2: '2° Planilla, Casas 1-20; (2025)',
-                3: '3° Planilla, Casas 1-20; (2025)',
-                4: '1° Planilla, Casas 1-20; (2026)'
-            },
-            2: {
-                5: '2° Planilla, Casas 21-40; (2024)',
-                6: '3° Planilla, Casas 21-40; (2024)',
-                7: '4° Planilla, Casas 21-40; (2024)',
-                8: '1° Planilla, Casas 21-40; (2025)',
-                9: '1° Planilla, Casas 21-40; (2026)',
-                10: '2° Planilla, Casas 21-40; (2026)'
-            },
-            3: {
-                11: '1° Planilla, Casas 41-60; (2024)',
-                12: '2° Planilla, Casas 41-60; (2024)',
-                13: '1⁰ Planilla, Casas 41-60; (2025)',
-                14: '1ª Planilla, Casas 41-60; (2026)'
-            }
-        }
-
-        # Intentamos obtener el nombre fijo
-        nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
-        if nombre_mapeado:
-            return nombre_mapeado
-
-        # --- BLOQUE 2: INTELIGENCIA AUTOMÁTICA (OCTUBRE/FUTURO) ---
-        # Si el ciclo no está en el mapa (ej: ciclo 15 en adelante), el sistema decide solo.
-        anio_servicio = obtener_anio_servicio() # Esto ya sabe si es 2026, 2027, etc.
-        
-        # Contamos cuántas planillas reales tiene esta zona en el año de servicio actual
-        conteo_en_db = self.planilla_repo.contar_planillas_por_anio(zona, anio_actual=anio_servicio)
+        # IMPORTANTE: Si la "1° Planilla" del 2026 es el Ciclo 4 (como en Zona 1), 
+        # y ese ciclo ya está en la DB, el conteo será 1. 
+        # Entonces el Ciclo 5 será 1 + 1 = 2° Planilla. Correcto.
         
         numero_vocal = conteo_en_db + 1
         rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
