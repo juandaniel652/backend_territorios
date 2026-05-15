@@ -311,27 +311,21 @@ class TerritorioService:
             }
         }
 
-        nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
-        if nombre_mapeado:
-            return nombre_mapeado
-
-        # 2. INTELIGENCIA POR LECTURA DE STRING (Para el futuro)
+        # 2. Lógica de lectura y suma
         anio_servicio = obtener_anio_servicio()
-        
-        # Buscamos en la DB la ULTIMA planilla que se creó para esta zona
         ultima_planilla_db = self.planilla_repo.obtener_ultima_planilla_creada(zona)
         
         if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
             num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
             
             if anio_anterior == anio_servicio:
-                # AQUÍ: Si el año es igual, sumamos 1 al número que extrajimos
+                # AQUÍ LA CLAVE: Sumamos 1 al número que leímos de la DB
                 proximo_numero = num_anterior + 1
             else:
-                # Si el año cambió (ej: de 2026 a 2027), reiniciamos la cuenta
+                # Si saltamos de 2026 a 2027, la cuenta vuelve a empezar
                 proximo_numero = 1
         else:
-            # Si no hay nada en la DB para esa zona, empezamos en 1
+            # Caso base si no hay nada en la tabla nombres_planillas para esa zona
             proximo_numero = 1
 
         rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
