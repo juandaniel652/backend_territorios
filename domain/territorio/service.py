@@ -33,7 +33,8 @@ from domain.territorio.schema import (
     TerritorioPlanillaInfo
 )
 
-from domain.planilla.service import obtener_anio_servicio
+
+from core.utils import extraer_info_planilla, obtener_anio_servicio
 from domain.planilla.repository import PlanillaRepository
 
 # ─────────────────────────────────────────────
@@ -314,22 +315,26 @@ class TerritorioService:
         if nombre_mapeado:
             return nombre_mapeado
 
-        # 2. INTELIGENCIA PARA EL FUTURO INFINITO
+        # 2. INTELIGENCIA POR LECTURA DE STRING (Para el futuro)
         anio_servicio = obtener_anio_servicio()
         
-        # Buscamos el ciclo más bajo de esta zona para el año actual.
-        # Ejemplo Zona 1: El primer ciclo del 2026 fue el 4.
-        # Si estamos procesando el Ciclo 5: (5 - 4) + 1 = 2° Planilla.
+        # Buscamos en la DB la ULTIMA planilla que se creó para esta zona
+        ultima_planilla_db = self.planilla_repo.obtener_ultima_planilla_creada(zona)
         
-        ciclo_inicial_anio = self.planilla_repo.obtener_primer_ciclo_del_anio(zona, anio_servicio)
-        
-        if ciclo_inicial_anio:
-            numero_vocal = (ciclo - ciclo_inicial_anio) + 1
+        if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
+            num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
+            
+            if anio_anterior == anio_servicio:
+                # Si es el mismo año, sumamos 1 al número que leímos
+                proximo_numero = num_anterior + 1
+            else:
+                # Si cambió el año (ej: pasamos de 2026 a 2027), reseteamos a 1
+                proximo_numero = 1
         else:
-            # Si es la primerísima planilla que se crea en el año (ej: Octubre 2026 para el año 2027)
-            numero_vocal = 1
+            # Si no hay nada en la DB, empezamos en 1
+            proximo_numero = 1
 
         rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
         rango_txt = rangos.get(zona, f"Zona {zona}")
 
-        return f"{numero_vocal}° Planilla, Casas {rango_txt}; ({anio_servicio})"
+        return f"{proximo_numero}° Planilla, Casas {rango_txt}; ({anio_servicio})"
