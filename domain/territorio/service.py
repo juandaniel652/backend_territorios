@@ -325,13 +325,13 @@ class TerritorioService:
             num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
             
             if anio_anterior == anio_servicio:
-                # Si es el mismo año, sumamos 1 al número que leímos
+                # AQUÍ: Si el año es igual, sumamos 1 al número que extrajimos
                 proximo_numero = num_anterior + 1
             else:
-                # Si cambió el año (ej: pasamos de 2026 a 2027), reseteamos a 1
+                # Si el año cambió (ej: de 2026 a 2027), reiniciamos la cuenta
                 proximo_numero = 1
         else:
-            # Si no hay nada en la DB, empezamos en 1
+            # Si no hay nada en la DB para esa zona, empezamos en 1
             proximo_numero = 1
 
         rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
