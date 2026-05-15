@@ -5,11 +5,14 @@ class PlanillaRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def contar_planillas_por_anio(self, zona: int, anio_actual: int) -> int:
-        return self.db.query(PlanillaNombre).filter(
-            PlanillaNombre.zona == zona, # <--- ESTE FILTRO ES LA CLAVE
-            PlanillaNombre.anio == anio_actual
-        ).count()
+    def contar_planillas_por_anio(self, zona: int, anio: int) -> int:
+        # Usamos SQL puro con text para evitar el NameError del modelo
+        query = text("""
+            SELECT COUNT(*) FROM nombres_planillas 
+            WHERE zona = :zona AND anio = :anio
+        """)
+        result = self.db.execute(query, {"zona": zona, "anio": anio}).scalar()
+        return result or 0
 
     def crear_planilla(self, zona: int, ciclo: int, nombre_planilla: str, anio: int):
         query = text("""

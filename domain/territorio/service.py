@@ -287,15 +287,14 @@ class TerritorioService:
         )
         
     def obtener_nombre_dinamico(self, zona: int, ciclo: int):
-        # 1. MAPEADO HISTÓRICO: Lo que ya pasó y tiene nombre especial
         nombres_fijos = {
-            1: { # Zona 1
+            1: {
                 1: '1° Planilla, Casas 1-20; (2025)',
                 2: '2° Planilla, Casas 1-20; (2025)',
                 3: '3° Planilla, Casas 1-20; (2025)',
                 4: '1° Planilla, Casas 1-20; (2026)'
             },
-            2: { # Zona 2
+            2: {
                 1: '2° Planilla, Casas 21-40; (2024)',
                 2: '3° Planilla, Casas 21-40; (2024)',
                 3: '4° Planilla, Casas 21-40; (2024)',
@@ -303,7 +302,7 @@ class TerritorioService:
                 5: '1° Planilla, Casas 21-40; (2026)',
                 6: '2° Planilla, Casas 21-40; (2026)'
             },
-            3: { # Zona 3
+            3: {
                 1: '1° Planilla, Casas 41-60; (2024)',
                 2: '2° Planilla, Casas 41-60; (2024)',
                 3: '1⁰ Planilla, Casas 41-60; (2025)',
@@ -315,15 +314,8 @@ class TerritorioService:
         if nombre_mapeado:
             return nombre_mapeado
 
-        # 2. LÓGICA AUTOMÁTICA (Para ciclos que no están arriba)
         anio_servicio = obtener_anio_servicio()
-        
-        # Contamos cuántas planillas hay en la DB para esta zona y año
         conteo_en_db = self.planilla_repo.contar_planillas_por_anio(zona, anio_servicio)
-        
-        # IMPORTANTE: Si la "1° Planilla" del 2026 es el Ciclo 4 (como en Zona 1), 
-        # y ese ciclo ya está en la DB, el conteo será 1. 
-        # Entonces el Ciclo 5 será 1 + 1 = 2° Planilla. Correcto.
         
         numero_vocal = conteo_en_db + 1
         rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
