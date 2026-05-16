@@ -1,0 +1,101 @@
+================================================================================
+DOCUMENTACIÓN TÉCNICA: MOTOR DE NOMENCLATURA DINÁMICA DE PLANILLAS
+================================================================================
+Fecha de Última Revisión: Mayo 2026
+Estado: Producción / Verificado
+Arquitectura: Clean Architecture / Domain-Driven Design (DDD)
+
+1. PROPÓSITO DEL MOTOR
+--------------------------------------------------------------------------------
+Automatizar la generación de nombres de planillas para la gestión de territorios,
+respetando de forma estricta el histórico manual precargado, resolviendo los saltos
+de ciclo (+1 planilla) dentro del mismo año de servicio, y reiniciando la cuenta (1°)
+de manera autónoma al cambiar el año de servicio (ciclo teocrático que inicia el 
+1 de Septiembre).
+
+2. FLUJO DE DATOS Y RESPONSABILIDADES POR ARCHIVO
+--------------------------------------------------------------------------------
+
+[Capa de API / Presentación]
+  └── api/v1/territorios.py
+      └── Endpoint: GET `/territorios/{numero}/planilla-status`
+          Se encarga de recibir la petición del cliente y llamar al servicio de 
+          dominio para obtener la información unificada del estado del territorio.
+
+[Capa de Dominio: Servicios y Reglas de Negocio]
+  ├── domain/territorio/service.py (Método: obtener_estado_planilla)
+  │   ├── Consulta la vista optimizada de la base de datos a través de su repositorio.
+  │   ├── Calcula matemáticamente el ciclo_actual y la fila_actual basado en el
+  │   │   total de salidas acumuladas (Fórmula: ciclo = ((total - 1) // 5) + 1).
+  │   └── Evalúa si el nombre recibido de la DB es genérico o nulo para decidir
+  │       si dispara el motor de nombres dinámicos.
+  │
+  └── domain/territorio/service.py (Método: obtener_nombre_dinamico)
+      ├── PASO 1 (Hard-coded Match): Compara la zona y el ciclo actual contra el
+      │   diccionario `nombres_fijos` (Histórico manual de años 2024 y 2025). Si 
+      │   existe una coincidencia exacta, corta el flujo y devuelve ese string.
+      │
+      ├── PASO 2 (Look-back & Increment): Si el ciclo no está mapeado en el diccionario,
+      │   invoca al repositorio de planillas pidiendo el último nombre real creado 
+      │   estrictamente en un ciclo anterior de la misma zona (:ciclo < :ciclo_actual).
+      │
+      ├── PASO 3 (String Parsing): Utiliza la función utilitaria `extraer_info_planilla`
+      │   para descomponer mediante expresiones regulares el string de la DB en una
+      │   tupla de enteros: (numero_planilla, anio_planilla).
+      │
+      └── PASO 4 (Business Logic Evaluation):
+          ├── Si el parseo falla o da (None, None): Resguarda el sistema (Early Return)
+          │   asignando por defecto el número de planilla en 1°.
+          ├── Si anio_planilla == anio_servicio_actual: Suma +1 al contador de planilla
+          │   (Ej: de "1° Planilla" a "2° Planilla").
+          └── Si anio_planilla != anio_servicio_actual: Detecta cambio de año de servicio,
+              por ende rompe la herencia de suma y reinicia el contador a 1°.
+
+[Capa de Persistencia / Acceso a Datos]
+  ├── domain/planilla/repository.py (Método: obtener_ultima_planilla_creada)
+  │   └── Ejecuta una consulta SQL nativa optimizada mediante SQLAlchemy:
+  │         SELECT nombre_planilla FROM nombres_planillas 
+  │         WHERE zona = :zona AND ciclo < :ciclo_actual
+  │         ORDER BY ciclo DESC LIMIT 1;
+  │       Garantiza el aislamiento de hilos históricos entre las distintas zonas.
+  │
+  └── Base de Datos (PostgreSQL / Vista: obtener_estado_detallado)
+      └── Realiza un conteo masivo (COUNT) agrupado por territorio haciendo un
+          LEFT JOIN con la tabla de asignaciones completadas, delegando el peso
+          del cálculo numérico plano al motor de la base de datos para máxima velocidad.
+
+3. COMPORTAMIENTO PREVISTO ANTE CAMBIOS DE ESTADO (CASO PRÁCTICA)
+--------------------------------------------------------------------------------
+Tomando como ejemplo el Territorio 3 (Zona 1, Rangos de Casas 1-20):
+
+* Escenario A (Estado Actual - Ciclo 4 Cerrado):
+  - Total Salidas: 20
+  - Ciclo calculado: 4, Fila calculada: 5
+  - Evaluación: El ciclo 4 coincide con el diccionario duro.
+  - Resultado: "1° Planilla, Casas 1-20; (2026)"
+
+* Escenario B (Tránsito al Ciclo 5 - Salida Nueva Insertada):
+  - Total Salidas: 21 (Se ejecuta el POST de nueva asignación)
+  - Ciclo calculado: 5, Fila calculada: 1
+  - Evaluación: Ciclo 5 NO está en el diccionario. El repositorio busca hacia atrás
+    (ciclo < 5) y encuentra la del Ciclo 4 ("1° Planilla... 2026").
+  - Lógica: Mismo año detectado (2026 == 2026) -> Aplica incremento: 1 + 1 = 2.
+  - Resultado: "2° Planilla, Casas 1-20; (2026)"
+
+* Escenario C (Salto de Año de Servicio - Futuro Septiembre 2026):
+  - El tiempo calendario avanza. `obtener_anio_servicio()` computa el año como 2027.
+  - Un territorio de la Zona 1 llega a un ciclo nuevo superior (Ej: Ciclo 6).
+  - El repositorio lee el ciclo anterior (Ciclo 5) cuyo año grabado es 2026.
+  - Lógica: Cambio de año detectado (2026 != 2027) -> Resetea contador a 1.
+  - Resultado: "1° Planilla, Casas 1-20; (2027)"
+
+4. ATRIBUTOS DE ROBUSTEZ IMPLEMENTADOS
+--------------------------------------------------------------------------------
+1. Integridad Referencial: La tabla `asignaciones` mantiene una llave foránea rígida 
+   hacia `nombres_planillas`. La DB bloquea cualquier intento de borrado accidental 
+   que ponga en riesgo la veracidad del historial de salidas de los conductores.
+2. Tolerancia a Fallos en Strings: Expresiones regulares protegidas por bloques 
+   try/except genéricos en `extraer_info_planilla`. Cualquier alteración manual o 
+   carácter extraño introducido directamente en la base de datos es digerido de forma 
+   segura por el backend sin provocar caídas del servidor (Errores 500).
+================================================================================
