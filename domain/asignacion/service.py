@@ -29,6 +29,7 @@ from core.utils import obtener_anio_servicio
 
 from domain.asignacion.schema import AsignacionCreate
 from domain.planilla.model import NombrePlanilla
+from datetime import date
 
 
 class AsignacionService:
@@ -226,16 +227,21 @@ class AsignacionService:
     # ── Agenda ofrece inteligentemente horario ─────────────────────────────────────────────────────
     
     def buscar_alternativa(self, item, territorios_usados, fecha_min, fecha_max):
-        
+        # 1. Traemos los candidatos filtrados por zona y no usados
         candidatos = self.db.query(self.territorio_repo.model).filter(
             self.territorio_repo.model.zona == item.zona,
             ~self.territorio_repo.model.id.in_(territorios_usados)
-        ).order_by(
-            self.territorio_repo.model.ultima_fecha_completado.asc()
         ).all()
 
-        for t in candidatos:
+        # 2. Ordenamos en Python usando la propiedad híbrida (los que tienen fecha más vieja o None primero)
+        # Usamos date.min para que los que tienen None (Nunca completados) queden al principio de todo (ascendente)
+        candidatos_ordenados = sorted(
+            candidatos, 
+            key=lambda t: t.ultima_fecha_completado or date.min
+        )
 
+        # 3. Buscamos el primero que no tenga conflictos de agenda
+        for t in candidatos_ordenados:
             conflicto = self.db.query(Salida).filter(
                 Salida.territorio_id == t.id,
                 Salida.fecha >= fecha_min,
@@ -533,14 +539,14 @@ class AsignacionService:
 
     def obtener_sugerencias(self, rango: int = 3):
         try:
-            # Llamamos al nuevo método del repo
             territorios = self.territorio_repo.obtener_sugerencias_antiguedad(rango=rango)
-            
+
             return [
                 {
                     "id": t.id,
                     "numero": t.numero,
                     "zona": t.zona,
+                    # Ahora lee de la propiedad calculada de manera transparente
                     "ultima_visita": t.ultima_fecha_completado.isoformat() if t.ultima_fecha_completado else "Nunca",
                     "estado": "disponible"
                 }

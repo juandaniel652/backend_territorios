@@ -187,6 +187,7 @@ class TerritorioService:
 
     @staticmethod
     def calcular_score(territorio, fecha_planificada: date) -> float:
+        # 'territorio.ultima_fecha_completado' ahora dispara la @hybrid_property y busca en el historial
         if territorio.ultima_fecha_completado:
             dias_desde = (fecha_planificada - territorio.ultima_fecha_completado).days
         else:

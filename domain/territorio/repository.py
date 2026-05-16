@@ -61,16 +61,7 @@ class TerritorioRepositoryProtocol(Protocol):
         asignación ascendente (los más atrasados primero).
         """
         ...
-        
-    def actualizar_fecha_terminado(self, territorio_id: int, fecha: date) -> None:
-        """
-        Actualiza el campo ultima_fecha_completado en la tabla territorios.
-        Esto asegura que las sugerencias por antigüedad funcionen al instante.
-        """
-        territorio = self.obtener_por_id(territorio_id)
-        if territorio:
-            territorio.ultima_fecha_completado = fecha
-
+    
 
 # ─────────────────────────────────────────────
 # 2. Implementación SQLAlchemy
@@ -122,23 +113,23 @@ class TerritorioRepository:
         return [AsignacionDeTerritorioOut(**row) for row in rows]
 
     def obtener_sugerencias(self, desde: int, hasta: int, limit: int) -> list[SugerenciaTerritorio]:
-        # Usamos COALESCE para que si la fecha es NULL (nunca se hizo), 
-        # se comporte como una fecha muy vieja.
+        # Modificamos la query para calcular la última fecha buscando el MAX(fecha_completado) del historial
         sql = text("""
             SELECT
-                numero,
-                ultima_fecha_completado AS ultima_fecha
-            FROM territorios
-            WHERE numero BETWEEN :desde AND :hasta
-            ORDER BY 
-                ultima_fecha_completado ASC NULLS FIRST
+                t.numero,
+                MAX(a.fecha_completado) AS ultima_fecha
+            FROM territorios t
+            LEFT JOIN asignaciones a ON t.id = a.territorio_id
+            WHERE t.numero BETWEEN :desde AND :hasta
+            GROUP BY t.id, t.numero
+            ORDER BY ultima_fecha ASC NULLS FIRST
             LIMIT :limit
         """)
-    
+
         rows = self.db.execute(
             sql, {"desde": desde, "hasta": hasta, "limit": limit}
         ).mappings().all()
-    
+
         return [
             SugerenciaTerritorio(
                 numero=row["numero"],
@@ -154,43 +145,32 @@ class TerritorioRepository:
         return self.db.query(Territorio).all()
     
     def obtener_sugerencias_antiguedad(self, desde: int, hasta: int, limit: int = 10):
-        # Esta query une la fecha estática de la tabla territorios 
-        # con la fecha más nueva de la tabla asignaciones
+        # La query ahora es mucho más simple y elegante
         sql = text("""
-            WITH UltimaAsignacionPorTerritorio AS (
-                SELECT territorio_id, MAX(fecha_completado) as fecha_max
-                FROM asignaciones
-                GROUP BY territorio_id
-            )
             SELECT 
                 t.id, 
                 t.numero, 
                 t.zona,
-                -- Elegimos la mayor entre la fecha vieja y la del historial
-                GREATEST(
-                    COALESCE(t.ultima_fecha_completado, '1900-01-01'), 
-                    COALESCE(ua.fecha_max, '1900-01-01')
-                ) as fecha_final
+                MAX(a.fecha_completado) as fecha_final
             FROM territorios t
-            LEFT JOIN UltimaAsignacionPorTerritorio ua ON t.id = ua.territorio_id
+            LEFT JOIN asignaciones a ON t.id = a.territorio_id
             WHERE t.numero BETWEEN :desde AND :hasta
+            GROUP BY t.id, t.numero, t.zona
             ORDER BY 
-                -- Los que tienen NULL o '1900-01-01' (nunca hechos) van primero
-                fecha_final ASC, 
+                fecha_final ASC NULLS FIRST, 
                 t.numero ASC
             LIMIT :limit
         """)
         
         result = self.db.execute(sql, {"desde": desde, "hasta": hasta, "limit": limit}).mappings().all()
         
-        # Procesamos los resultados para calcular los días de atraso en Python
         from datetime import date
         hoy = date.today()
         sugerencias = []
     
         for r in result:
             fecha_f = r["fecha_final"]
-            if fecha_f == date(1900, 1, 1):
+            if fecha_f is None:  # Si nunca tuvo una asignación completada en el historial
                 ultima_visita = "Nunca"
                 dias_atraso = 999
                 severidad = "critico"
@@ -210,7 +190,6 @@ class TerritorioRepository:
                 "severidad": severidad
             })
         
-        # Re-ordenamos por días de atraso (más días arriba)
         return sorted(sugerencias, key=lambda x: x['dias_atraso'], reverse=True)
     
     def obtener_sugerencias_por_dia(self, es_sabado: bool, limit: int = 10):
@@ -239,15 +218,6 @@ class TerritorioRepository:
         """)
         
         return self.db.execute(sql, {"limit": limit}).mappings().all()
-    
-    def actualizar_fecha_terminado(self, territorio_id: int, fecha: date) -> None:
-        """
-        Actualiza el campo ultima_fecha_completado en la tabla territorios.
-        Esto asegura que las sugerencias por antigüedad funcionen al instante.
-        """
-        territorio = self.obtener_por_id(territorio_id)
-        if territorio:
-            territorio.ultima_fecha_completado = fecha
     
     def obtener_estado_detallado(self, numero: int):
         query = """
