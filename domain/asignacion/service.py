@@ -2,7 +2,7 @@
 domain/asignacion/service.py
 """
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, or_, tuple_
@@ -27,6 +27,9 @@ from domain.territorio.service import TerritorioService
 from domain.asignacion.response_builder import AgendaResponseBuilder
 from core.utils import obtener_anio_servicio
 
+from domain.asignacion.schema import AsignacionCreate
+from domain.planilla.model import NombrePlanilla
+
 
 class AsignacionService:
 
@@ -48,59 +51,86 @@ class AsignacionService:
         self.conductor_repo  = conductor_repo
         self.salida_repo = salida_repo
         
-
-    def crear_asignacion(self, data: AsignacionCreate) -> AsignacionCreatedOut:
-        try:
-            # 1. Búsqueda de territorio por número
-            territorio = self.territorio_repo.obtener_por_numero(data.numero_territorio)
-            if not territorio:
-                raise HTTPException(status_code=404, detail=f"Territorio {data.numero_territorio} no encontrado")
-
-            # 2. Lógica de ciclos (Planilla/Fila)
-            visitas = self.asignacion_repo.contar_completadas(territorio.id)
-            planilla = visitas // 5 + 1
-            fila = visitas % 5 + 1
-
-            # 3. Resolución de conductor
-            conductor, conductor_creado = self.conductor_repo.obtener_o_crear(data.conductor)
-
-            # 4. Creación de la asignación en el Repo
-            asignacion = self.asignacion_repo.crear(
-                territorio_id=territorio.id,
-                conductor_id=conductor.id,
-                fecha_asignado=data.fecha_asignado,
-                fecha_completado=data.fecha_completado,
-                cantidad_abarcado=data.cantidad_abarcado,
-                planilla_ciclo=planilla,
-                fila=fila
+    def crear_asignacion(self, data: AsignacionCreate):
+        # 1. Validar que exista el territorio por su número natural
+        territorio = self.territorio_repo.obtener_por_numero(data.numero_territorio)
+        if not territorio:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"El territorio número {data.numero_territorio} no existe."
             )
 
-            # ─── IMPACTO Y AUTOMATIZACIÓN ───
-            if data.fecha_completado:
-                # Actualizamos la fecha en el territorio (tu lógica original)
-                self.territorio_repo.actualizar_fecha_terminado(
-                    territorio_id=territorio.id,
-                    fecha=data.fecha_completado
-                )
-                # ¡NUEVO! Chequeamos si al crearla ya cerró un ciclo
-                # Hacemos commit antes para que el service vea el nuevo conteo
-                self.db.commit() 
-                self._verificar_y_crear_proxima_planilla(territorio.id)
-            else:
-                self.db.commit()
+        # 2. Resolver Conductor usando tu método semántico 'obtener_o_crear'
+        conductor_nombre_clean = data.conductor.strip()
+        conductor, conductor_creado = self.conductor_repo.obtener_o_crear(conductor_nombre_clean)
 
-            self.db.refresh(asignacion)
+        # 3. Leer el estado exacto desde la vista mediante el repositorio
+        estado_vista = self.territorio_repo.obtener_estado_detallado(territorio.numero)
+        
+        if estado_vista:
+            # La vista nos dice exactamente a dónde tiene que apuntar la nueva asignación
+            ciclo_calculado = estado_vista["ciclo_actual"]
+            fila_calculada = estado_vista["proxima_fila"]
+            zona_territorio = estado_vista["zona"]
+        else:
+            # Fallback seguro por si el territorio no figura todavía en la vista
+            ciclo_calculado = 1
+            fila_calculada = 1
+            zona_territorio = territorio.zona
 
-        except Exception as e:
-            self.db.rollback()
-            raise HTTPException(500, f"Error al crear la asignación: {str(e)}")
-
-        return AsignacionCreatedOut(
-            message="Asignación creada correctamente",
-            asignacion_id=asignacion.id,
-            conductor_creado=conductor_creado,
+        # 4. Verificar si ya existe la cabecera de la planilla en nombres_planillas
+        planilla_existente = (
+            self.db.query(NombrePlanilla)
+            .filter(NombrePlanilla.zona == zona_territorio, NombrePlanilla.ciclo == ciclo_calculado)
+            .first()
         )
 
+        if planilla_existente:
+            planilla_id_final = planilla_existente.id
+        else:
+            # Si no existe, calculamos el nombre dinámico usando el territorio_service
+            nombre_autogenerado = self.territorio_service.obtener_nombre_dinamico(
+                zona=zona_territorio, 
+                ciclo=ciclo_calculado
+            )
+            
+            # Calculamos el año de servicio basándonos en la fecha de asignación
+            anio_servicio = obtener_anio_servicio(data.fecha_asignado)
+
+            # Insertamos la nueva cabecera de la planilla
+            nueva_planilla = NombrePlanilla(
+                zona=zona_territorio,
+                ciclo=ciclo_calculado,
+                nombre_planilla=nombre_autogenerado,
+                anio=anio_servicio
+            )
+            self.db.add(nueva_planilla)
+            self.db.flush()  # Sincroniza para obtener el ID generado sin cerrar la transacción
+            planilla_id_final = nueva_planilla.id
+
+        # 5. Instanciar el objeto de la Asignación
+        nueva_asignacion = Asignacion(
+            territorio_id=territorio.id,
+            conductor_id=conductor.id,
+            planilla_id=planilla_id_final,
+            planilla_ciclo=ciclo_calculado,
+            fila=fila_calculada,
+            fecha_asignado=data.fecha_asignado,
+            fecha_completado=data.fecha_completado,
+            cantidad_abarcado=data.cantidad_abarcado
+        )
+
+        # 6. Persistir en la base de datos de manera atómica
+        self.db.add(nueva_asignacion)
+        self.db.commit()
+
+        # 7. Retornar la respuesta estructurada que espera AsignacionCreatedOut
+        return {
+            "message": "Asignación registrada exitosamente con control dinámico de planillas",
+            "asignacion_id": nueva_asignacion.id,
+            "conductor_creado": conductor_creado
+        }
+    
     # ── NUEVO: Actualizar ────────────────────────────────────────────────────
     def actualizar_asignacion(self, asignacion_id: int, data: AsignacionUpdate) -> AsignacionUpdatedOut:
         try:
