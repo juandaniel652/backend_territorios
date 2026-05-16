@@ -22,7 +22,6 @@ class Territorio(Base):
     zona = Column(Integer, nullable=False, default=1) # 1, 2 o 3
     permite_am = Column(Boolean, default=True)
     permite_pm = Column(Boolean, default=True)
-    ultima_fecha_completado = Column(Date, nullable=True)
 
     # Relación inversa — no genera query hasta que se acceda explícitamente
     asignaciones = relationship(
