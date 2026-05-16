@@ -16,7 +16,7 @@ from domain.salida.repository import SalidaRepository
 from domain.planilla.repository import PlanillaRepository # Nuevo import
 from domain.territorio.service import TerritorioService
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 CurrentUser = dict
 
