@@ -5,15 +5,16 @@ class PlanillaRepository:
     def __init__(self, db: Session):
         self.db = db
         
-    def obtener_ultima_planilla_creada(self, zona: int):
+    def obtener_ultima_planilla_creada(self, zona: int, ciclo_actual: int):
         query = text("""
             SELECT nombre_planilla FROM nombres_planillas 
-            WHERE zona = :zona 
+            WHERE zona = :zona AND ciclo < :ciclo_actual
             ORDER BY ciclo DESC LIMIT 1
         """)
-        result = self.db.execute(query, {"zona": zona}).fetchone()
-        # Si existe, devolvemos el objeto (que tiene el atributo nombre_planilla)
-        # Si no existe, devolvemos None
+        result = self.db.execute(query, {
+            "zona": zona, 
+            "ciclo_actual": ciclo_actual
+        }).fetchone()
         return result
         
     def obtener_primer_ciclo_del_anio(self, zona: int, anio: int) -> int:

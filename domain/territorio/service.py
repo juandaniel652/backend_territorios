@@ -226,19 +226,16 @@ class TerritorioService:
         return propuesta
     
     # ── Planillas ──────────────────────────
+
     def obtener_estado_planilla(self, numero: int) -> TerritorioPlanillaInfo:
-    
         info_db = self.repo.obtener_estado_detallado(numero)
         hoy = date.today()
-        anio_actual = obtener_anio_servicio(hoy) # 2026 si estamos en mayo
+        anio_actual = obtener_anio_servicio(hoy)
 
         if not info_db or info_db.get("total_salidas", 0) == 0:
-            # --- MEJORA AQUÍ ---
-            # Si no hay info_db, intentamos sacar la zona del repo directamente
             if info_db:
                 zona = info_db.get("zona", 1)
             else:
-                # Si el territorio es nuevo y no está en la vista, le preguntamos al repo la zona
                 zona = self.repo.obtener_zona_de_territorio(numero) or 1
             
             nombre_ini = self.obtener_nombre_dinamico(zona, 1)
@@ -257,17 +254,16 @@ class TerritorioService:
         zona = info_db.get("zona")
 
         # --- DETERMINAR EL NOMBRE ---
-        # Si la DB trae un nombre genérico como "Planilla X", lo ignoramos 
-        # y usamos nuestra lógica dinámica.
         nombre_db = info_db.get("nombre_planilla")
         
-        if not nombre_db or "Planilla" in nombre_db: 
-            # Aquí entra la inteligencia que cuenta planillas en el año de servicio
-            nombre_planilla = self.obtener_nombre_dinamico(zona, actual_ciclo)
-        else:
+        # Corregimos la condición: Si la base de datos YA tiene un nombre real asignado
+        # para este ciclo, lo respetamos a muerte. No calculamos nada nuevo.
+        if nombre_db and not nombre_db.startswith("Planilla "): 
             nombre_planilla = nombre_db
+        else:
+            # Si está vacío o es un nombre genérico de plantilla nueva, ahí sí calculamos
+            nombre_planilla = self.obtener_nombre_dinamico(zona, actual_ciclo)
 
-        # --- LÓGICA DEL SALTO ---
         if actual_fila == 5:
             sig_ciclo = actual_ciclo + 1
             sig_fila = 1
@@ -282,7 +278,7 @@ class TerritorioService:
             fila_actual=actual_fila,
             proximo_ciclo=sig_ciclo,
             proxima_fila=sig_fila,
-            nombre_planilla=nombre_planilla, # <--- USAMOS LA VARIABLE CALCULADA
+            nombre_planilla=nombre_planilla,
             anio=info_db.get("anio") or anio_actual,
             mensaje_estado=f"Ciclo {actual_ciclo} - Fila {actual_fila}/5"
         )
@@ -311,21 +307,35 @@ class TerritorioService:
             }
         }
 
-        # 2. Lógica de lectura y suma
+        # ¡PRIMERO REVISAR EL DICCIONARIO HISTÓRICO!
+        # Si el ciclo actual está en el diccionario, devolvemos ese string exacto.
+        nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
+        if nombre_mapeado:
+            return nombre_mapeado
+
+        # 2. Lógica de lectura y suma (Para ciclos futuros que no estén en el diccionario)
         anio_servicio = obtener_anio_servicio()
-        ultima_planilla_db = self.planilla_repo.obtener_ultima_planilla_creada(zona)
+        
+        # Pasamos el ciclo actual a la consulta para buscar solo ciclos anteriores reales
+        ultima_planilla_db = self.planilla_repo.obtener_ultima_planilla_creada(zona, ciclo)
         
         if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
+            # Ejecutamos tu extractor
             num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
             
-            if anio_anterior == anio_servicio:
-                # AQUÍ LA CLAVE: Sumamos 1 al número que leímos de la DB
-                proximo_numero = num_anterior + 1
-            else:
-                # Si saltamos de 2026 a 2027, la cuenta vuelve a empezar
+            # --- PRETESTING / VALIDACIÓN DE SEGURIDAD ---
+            if num_anterior is None or anio_anterior is None:
+                # Si el string de la DB estaba corrupto o no se pudo leer,
+                # asumimos que no hay un historial confiable y empezamos en 1
                 proximo_numero = 1
+            else:
+                # Si la tupla es válida, seguimos con la lógica normal
+                if anio_anterior == anio_servicio:
+                    proximo_numero = num_anterior + 1
+                else:
+                    proximo_numero = 1
         else:
-            # Caso base si no hay nada en la tabla nombres_planillas para esa zona
+            # Caso base si es la primera planilla absoluta en la DB para esa zona
             proximo_numero = 1
 
         rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
