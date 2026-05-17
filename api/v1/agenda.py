@@ -29,11 +29,10 @@ class ConfirmarAgendaIn(BaseModel):
 @router.get("/sugerir-quincenal", summary="Genera la propuesta de agenda para los próximos 2 domingos")
 def sugerir_quincenal(
     zona: int = Query(..., description="Zona de la planilla a filtrar"),
-    limit: int = Query(default=3, description="Límite de territorios por turno"),
     db: Session = Depends(get_db)
 ):
     service = AgendaQuincenalService(db)
-    return service.generar_propuesta_quincenal(zona=zona, limite_por_domingo=limit)
+    return service.generar_propuesta_quincenal(zona=zona)
 
 
 @router.post("/confirmar-quincenal", summary="Confirma la propuesta y la inserta en salidas (vacias) y sugerencias")
