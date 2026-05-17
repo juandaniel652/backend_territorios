@@ -52,29 +52,27 @@ class AgendaQuincenalService:
         
         territorios_ordenados = self.db.execute(sql, {"zona": zona}).mappings().all()
 
+        # 🌟 EL FIX: Ponemos el pool acá AFUERA. 
+        # Así, lo que gasta la Semana 1, ya no está disponible para la Semana 2.
+        pool_territorios = list(territorios_ordenados)
+
         for idx_semana, lunes_inicio in enumerate(lunes_semanas, start=1):
-            # La plantilla exacta de 10 salidas fijas (offset mapea los días desde el lunes)
             cronograma_semanal = [
                 {"offset": 0, "turno": "PM", "label": "Lunes PM"},
-                
                 {"offset": 1, "turno": "AM", "label": "Martes AM"},
                 {"offset": 1, "turno": "PM", "label": "Martes PM"},
-                
                 {"offset": 2, "turno": "AM", "label": "Miércoles AM"},
-                
                 {"offset": 3, "turno": "AM", "label": "Jueves AM"},
                 {"offset": 3, "turno": "PM", "label": "Jueves PM"},
-                
                 {"offset": 4, "turno": "AM", "label": "Viernes AM"},
                 {"offset": 4, "turno": "PM", "label": "Viernes PM"},
-                
                 {"offset": 5, "turno": "AM", "label": "Sábado AM"},
                 {"offset": 5, "turno": "PM", "label": "Sábado PM"}
             ]
 
             salidas_semana = []
-            # Copiamos la lista para ir consumiendo territorios sin repetir el mismo en la misma semana
-            pool_territorios = list(territorios_ordenados)
+            
+            # (Borrá la línea 'pool_territorios = list(territorios_ordenados)' que estaba acá adentro)
 
             for slot in cronograma_semanal:
                 fecha_exacta = lunes_inicio + timedelta(days=slot["offset"])
