@@ -16,20 +16,26 @@ class AgendaQuincenalService:
         # Reutilizamos tu repositorio de salidas existente
         self.salida_repo = SalidaRepository(db)
 
-    def _obtener_proximos_domingos(self, fecha_base: date = None) -> list[date]:
+    def _obtener_inicios_de_semana(self, fecha_base: date = None) -> list[date]:
+        """Calcula el lunes de la semana que viene (Semana 1) y el de la siguiente (Semana 2)."""
         if not fecha_base:
             fecha_base = date.today()
         
-        dias_hasta_domingo = (6 - fecha_base.weekday()) % 7
-        if dias_hasta_domingo == 0:
-            dias_hasta_domingo = 7
+        # weekday() en Python: 0=Lunes, 1=Martes, ..., 6=Domingo
+        dias_hasta_lunes = (0 - fecha_base.weekday()) % 7
+        if dias_hasta_lunes == 0:
+            dias_hasta_lunes = 7  # Si hoy ya es lunes, saltamos al próximo lunes del calendario
 
-        primer_domingo = fecha_base + timedelta(days=dias_hasta_domingo)
-        segundo_domingo = primer_domingo + timedelta(days=7)
-        return [primer_domingo, segundo_domingo]
+        primer_lunes = fecha_base + timedelta(days=dias_hasta_lunes)
+        segundo_lunes = primer_lunes + timedelta(days=7)
+        return [primer_lunes, segundo_lunes]
 
-    def generar_propuesta_quincenal(self, zona: int, limite_por_domingo: int = 3) -> list[dict]:
-        domingos = self._obtener_proximos_domingos()
+    def generar_propuesta_quincenal(self, zona: int) -> list[dict]:
+        """
+        Genera la propuesta de agenda quincenal basada en la plantilla de 10 bloques fijos,
+        consumiendo los territorios de Supabase por orden estricto de atraso (urgencia).
+        """
+        lunes_semanas = self._obtener_inicios_de_semana()
         propuesta_completa = []
 
         # Fuente de verdad: unimos territorios con sus asignaciones reales completadas
@@ -46,42 +52,61 @@ class AgendaQuincenalService:
         
         territorios_ordenados = self.db.execute(sql, {"zona": zona}).mappings().all()
 
-        for domingo in domingos:
-            salidas_domingo = []
-            cupos_am = 0
-            cupos_pm = 0
+        for idx_semana, lunes_inicio in enumerate(lunes_semanas, start=1):
+            # La plantilla exacta de 10 salidas fijas (offset mapea los días desde el lunes)
+            cronograma_semanal = [
+                {"offset": 0, "turno": "PM", "label": "Lunes PM"},
+                
+                {"offset": 1, "turno": "AM", "label": "Martes AM"},
+                {"offset": 1, "turno": "PM", "label": "Martes PM"},
+                
+                {"offset": 2, "turno": "AM", "label": "Miércoles AM"},
+                
+                {"offset": 3, "turno": "AM", "label": "Jueves AM"},
+                {"offset": 3, "turno": "PM", "label": "Jueves PM"},
+                
+                {"offset": 4, "turno": "AM", "label": "Viernes AM"},
+                {"offset": 4, "turno": "PM", "label": "Viernes PM"},
+                
+                {"offset": 5, "turno": "AM", "label": "Sábado AM"},
+                {"offset": 5, "turno": "PM", "label": "Sábado PM"}
+            ]
 
-            for t in territorios_ordenados:
-                dias_atraso = (domingo - t["ultima_fecha"]).days
-                score_final = 999 if t["ultima_fecha"] == date(1970, 1, 1) else dias_atraso
+            salidas_semana = []
+            # Copiamos la lista para ir consumiendo territorios sin repetir el mismo en la misma semana
+            pool_territorios = list(territorios_ordenados)
 
-                if cupos_am < limite_por_domingo and t["permite_am"]:
-                    salidas_domingo.append({
-                        "territorio_id": t["id"],
-                        "numero": t["numero"],
-                        "fecha": domingo,
-                        "turno": "AM",
+            for slot in cronograma_semanal:
+                fecha_exacta = lunes_inicio + timedelta(days=slot["offset"])
+                
+                # El algoritmo busca secuencialmente el territorio más urgente que acepte el turno
+                territorio_asignado = None
+                for t in pool_territorios:
+                    cumple_turno = t["permite_am"] if slot["turno"] == "AM" else t["permite_pm"]
+                    if cumple_turno:
+                        territorio_asignado = t
+                        break
+                
+                # Si encontramos uno que encaje, lo agendamos y lo removemos del pool de esta semana
+                if territorio_asignado:
+                    pool_territorios.remove(territorio_asignado)
+                    
+                    dias_atraso = (fecha_exacta - territorio_asignado["ultima_fecha"]).days
+                    score_final = 999 if territorio_asignado["ultima_fecha"] == date(1970, 1, 1) else dias_atraso
+
+                    salidas_semana.append({
+                        "territorio_id": territorio_asignado["id"],
+                        "numero": territorio_asignado["numero"],
+                        "fecha": fecha_exacta,
+                        "turno": slot["turno"],
+                        "bloque_nombre": slot["label"],
                         "score": score_final
                     })
-                    cupos_am += 1
-                    continue
-
-                if cupos_pm < limite_por_domingo and t["permite_pm"]:
-                    salidas_domingo.append({
-                        "territorio_id": t["id"],
-                        "numero": t["numero"],
-                        "fecha": domingo,
-                        "turno": "PM",
-                        "score": score_final
-                    })
-                    cupos_pm += 1
-
-                if cupos_am >= limite_por_domingo and cupos_pm >= limite_por_domingo:
-                    break
 
             propuesta_completa.append({
-                "fecha_domingo": domingo,
-                "salidas": salidas_domingo
+                "semana_numero": idx_semana,
+                "rango_fechas": f"Del {lunes_inicio.strftime('%d/%m')} al {(lunes_inicio + timedelta(days=5)).strftime('%d/%m')}",
+                "salidas": salidas_semana
             })
 
         return propuesta_completa
@@ -92,7 +117,6 @@ class AgendaQuincenalService:
 
             for item in items:
                 # 1. Instanciamos las Salidas mapeando tu modelo ORM exacto
-                # Dejamos conductor_id en None por defecto tal cual permite tu modelo nullable
                 nueva_salida = Salida(
                     territorio_id=item["territorio_id"],
                     conductor_id=None,  
