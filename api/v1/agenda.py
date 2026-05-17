@@ -26,13 +26,26 @@ class ConfirmarAgendaIn(BaseModel):
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
-@router.get("/sugerir-quincenal", summary="Genera la propuesta de agenda para los próximos 2 domingos")
+@router.get("/sugerir-quincenal", summary="Genera la propuesta de agenda filtrada por una sola zona")
 def sugerir_quincenal(
     zona: int = Query(..., description="Zona de la planilla a filtrar"),
     db: Session = Depends(get_db)
 ):
     service = AgendaQuincenalService(db)
     return service.generar_propuesta_quincenal(zona=zona)
+
+
+@router.get("/sugerir-combinada", summary="Genera la propuesta de agenda unificada intercalando las 3 zonas con restricciones")
+def sugerir_combinada(
+    db: Session = Depends(get_db)
+):
+    """
+    Este endpoint junta las zonas 1, 2 y 3. 
+    Aplica la restricción de que Zona 3 y los territorios 28-31 de Zona 2 
+    solo puedan caer los Sábados AM.
+    """
+    service = AgendaQuincenalService(db)
+    return service.generar_propuesta_quincenal_combinada()
 
 
 @router.post("/confirmar-quincenal", summary="Confirma la propuesta y la inserta en salidas (vacias) y sugerencias")

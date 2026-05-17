@@ -132,3 +132,86 @@ class AgendaQuincenalService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error al guardar la agenda quincenal: {str(e)}"
             )
+            
+    def generar_propuesta_quincenal_combinada(self) -> list[dict]:
+        lunes_semanas = self._obtener_inicios_de_semana()
+        propuesta_completa = []
+
+        # 1. Traemos TODOS los territorios de las zonas 1, 2 y 3 juntos ordenados por atraso
+        sql_territorios = text("""
+            SELECT t.id, t.numero, t.zona, t.permite_am, t.permite_pm,
+                   COALESCE(MAX(a.fecha_completado), '1970-01-01'::date) as ultima_fecha
+            FROM territorios t
+            LEFT JOIN asignaciones a ON t.id = a.territorio_id
+            WHERE t.zona IN (1, 2, 3)
+            GROUP BY t.id, t.numero, t.zona, t.permite_am, t.permite_pm
+            ORDER BY ultima_fecha ASC, t.numero ASC
+        """)
+        territorios_ordenados = self.db.execute(sql_territorios).mappings().all()
+
+        # 2. Leemos los bloques de horarios activos desde tu tabla de configuración
+        sql_plantilla = text("""
+            SELECT dia_semana as offset, turno, label 
+            FROM plantilla_horaria 
+            WHERE activo = TRUE 
+            ORDER BY orden ASC
+        """)
+        cronograma_semanal = self.db.execute(sql_plantilla).mappings().all()
+
+        # Creamos el pool global unificado
+        pool_territorios = list(territorios_ordenados)
+
+        for idx_semana, lunes_inicio in enumerate(lunes_semanas, start=1):
+            salidas_semana = []
+
+            for slot in cronograma_semanal:
+                fecha_exacta = lunes_inicio + timedelta(days=slot["offset"])
+                
+                # 🌟 REGLA DE ORO: Identificamos si el bloque actual evaluado es Sábado AM
+                # dia_semana = 5 representa al Sábado según el estándar que cargamos
+                es_sabado_am = (slot["offset"] == 5 and slot["turno"] == "AM")
+                
+                territorio_asignado = None
+                
+                for t in pool_territorios:
+                    # A) Validación básica de turno habilitado por el territorio
+                    cumple_turno = t["permite_am"] if slot["turno"] == "AM" else t["permite_pm"]
+                    
+                    # B) Filtro estricto de exclusión de zonas:
+                    # Evaluamos si el territorio pertenece al grupo de Sábado AM Estricto
+                    es_restringido = (t["zona"] == 3) or (t["zona"] == 2 and 28 <= t["numero"] <= 31)
+                    
+                    # Si el territorio es restringido pero NO estamos parados en un Sábado AM, pasamos de largo
+                    if es_restringido and not es_sabado_am:
+                        continue
+                    
+                    # Si pasó los filtros y el turno coincide, lo elegimos
+                    if cumple_turno:
+                        territorio_asignado = t
+                        break
+                
+                # Si encontramos un territorio que encaje en el bloque, lo removemos y lo guardamos
+                if territorio_asignado:
+                    pool_territorios.remove(territorio_asignado)
+                    
+                    dias_atraso = (fecha_exacta - territorio_asignado["ultima_fecha"]).days
+                    score_final = 999 if territorio_asignado["ultima_fecha"] == date(1970, 1, 1) else dias_atraso
+
+                    salidas_semana.append({
+                        "territorio_id": territorio_asignado["id"],
+                        "numero": territorio_asignado["numero"],
+                        "zona": territorio_asignado["zona"], # Agregamos la zona para que React pueda pintarla
+                        "fecha": fecha_exacta,
+                        "turno": slot["turno"],
+                        "bloque_nombre": slot["label"],
+                        "score": score_final
+                    })
+
+            propuesta_completa.append({
+                "semana_numero": idx_semana,
+                "rango_fechas": f"Del {lunes_inicio.strftime('%d/%m')} al {(lunes_inicio + timedelta(days=5)).strftime('%d/%m')}",
+                "salidas": salidas_semana
+            })
+
+        return propuesta_completa      
+    
