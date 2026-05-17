@@ -31,53 +31,39 @@ class AgendaQuincenalService:
         return [primer_lunes, segundo_lunes]
 
     def generar_propuesta_quincenal(self, zona: int) -> list[dict]:
-        """
-        Genera la propuesta de agenda quincenal basada en la plantilla de 10 bloques fijos,
-        consumiendo los territorios de Supabase por orden estricto de atraso (urgencia).
-        """
         lunes_semanas = self._obtener_inicios_de_semana()
         propuesta_completa = []
 
-        # Fuente de verdad: unimos territorios con sus asignaciones reales completadas
-        sql = text("""
-            SELECT 
-                t.id, t.numero, t.permite_am, t.permite_pm,
-                COALESCE(MAX(a.fecha_completado), '1970-01-01'::date) as ultima_fecha
+        # 1. Traemos los territorios ordenados por urgencia
+        sql_territorios = text("""
+            SELECT t.id, t.numero, t.permite_am, t.permite_pm,
+                   COALESCE(MAX(a.fecha_completado), '1970-01-01'::date) as ultima_fecha
             FROM territorios t
             LEFT JOIN asignaciones a ON t.id = a.territorio_id
             WHERE t.zona = :zona
             GROUP BY t.id, t.numero, t.permite_am, t.permite_pm
             ORDER BY ultima_fecha ASC, t.numero ASC
         """)
-        
-        territorios_ordenados = self.db.execute(sql, {"zona": zona}).mappings().all()
+        territorios_ordenados = self.db.execute(sql_territorios, {"zona": zona}).mappings().all()
 
-        # 🌟 EL FIX: Ponemos el pool acá AFUERA. 
-        # Así, lo que gasta la Semana 1, ya no está disponible para la Semana 2.
+        # 2. 🌟 ¡NUEVO! Traemos la plantilla horaria viva de Supabase
+        sql_plantilla = text("""
+            SELECT dia_semana as offset, turno, label 
+            FROM plantilla_horaria 
+            WHERE activo = TRUE 
+            ORDER BY orden ASC
+        """)
+        cronograma_semanal = self.db.execute(sql_plantilla).mappings().all()
+
         pool_territorios = list(territorios_ordenados)
 
         for idx_semana, lunes_inicio in enumerate(lunes_semanas, start=1):
-            cronograma_semanal = [
-                {"offset": 0, "turno": "PM", "label": "Lunes PM"},
-                {"offset": 1, "turno": "AM", "label": "Martes AM"},
-                {"offset": 1, "turno": "PM", "label": "Martes PM"},
-                {"offset": 2, "turno": "AM", "label": "Miércoles AM"},
-                {"offset": 3, "turno": "AM", "label": "Jueves AM"},
-                {"offset": 3, "turno": "PM", "label": "Jueves PM"},
-                {"offset": 4, "turno": "AM", "label": "Viernes AM"},
-                {"offset": 4, "turno": "PM", "label": "Viernes PM"},
-                {"offset": 5, "turno": "AM", "label": "Sábado AM"},
-                {"offset": 5, "turno": "PM", "label": "Sábado PM"}
-            ]
-
             salidas_semana = []
-            
-            # (Borrá la línea 'pool_territorios = list(territorios_ordenados)' que estaba acá adentro)
 
             for slot in cronograma_semanal:
+                # slot["offset"] ahora viene directo de la columna dia_semana de la DB!
                 fecha_exacta = lunes_inicio + timedelta(days=slot["offset"])
                 
-                # El algoritmo busca secuencialmente el territorio más urgente que acepte el turno
                 territorio_asignado = None
                 for t in pool_territorios:
                     cumple_turno = t["permite_am"] if slot["turno"] == "AM" else t["permite_pm"]
@@ -85,7 +71,6 @@ class AgendaQuincenalService:
                         territorio_asignado = t
                         break
                 
-                # Si encontramos uno que encaje, lo agendamos y lo removemos del pool de esta semana
                 if territorio_asignado:
                     pool_territorios.remove(territorio_asignado)
                     
