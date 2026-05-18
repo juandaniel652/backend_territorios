@@ -137,7 +137,21 @@ class AgendaQuincenalService:
         lunes_semanas = self._obtener_inicios_de_semana()
         propuesta_completa = []
 
-        # 1. Traemos TODOS los territorios de las zonas 1, 2 y 3 juntos ordenados por atraso
+        # Diccionario interno de negocio para formatear los horarios reales de la congregación
+        mapeo_horarios = {
+            "Lunes PM": "Lunes 16:00 hs",
+            "Martes AM": "Martes 10:00 hs",
+            "Martes PM": "Martes 16:00 hs", # Si llega a haber otro turno, se puede mapear acá
+            "Miércoles AM": "Miércoles 10:00 hs",
+            "Jueves AM": "Jueves 10:00 hs",
+            "Jueves PM": "Jueves 16:00 hs",
+            "Viernes AM": "Viernes 10:00 hs",
+            "Viernes PM": "Viernes 16:00 hs",
+            "Sábado AM": "Sábado 10:00 hs",
+            "Sábado PM": "Sábado 16:00 hs"
+        }
+
+        # 1. Traemos TODOS los territorios ordenados por su atraso real (score)
         sql_territorios = text("""
             SELECT t.id, t.numero, t.zona, t.permite_am, t.permite_pm,
                    COALESCE(MAX(a.fecha_completado), '1970-01-01'::date) as ultima_fecha
@@ -149,7 +163,7 @@ class AgendaQuincenalService:
         """)
         territorios_ordenados = self.db.execute(sql_territorios).mappings().all()
 
-        # 2. Leemos los bloques de horarios activos desde tu tabla de configuración
+        # 2. Traemos las configuraciones activas de los bloques horarios
         sql_plantilla = text("""
             SELECT dia_semana as offset, turno, label 
             FROM plantilla_horaria 
@@ -158,7 +172,11 @@ class AgendaQuincenalService:
         """)
         cronograma_semanal = self.db.execute(sql_plantilla).mappings().all()
 
-        # Creamos el pool global unificado
+        # Traemos también una lista de conductores para que el frontend pueda armar un combobox/select si lo necesita
+        sql_conductores = text("SELECT id, nombre_completo FROM conductores ORDER BY nombre_completo ASC")
+        conductores_pool = self.db.execute(sql_conductores).mappings().all()
+        listado_conductores = [{"id": c["id"], "nombre_completo": c["nombre_completo"]} for c in conductores_pool]
+
         pool_territorios = list(territorios_ordenados)
 
         for idx_semana, lunes_inicio in enumerate(lunes_semanas, start=1):
@@ -166,45 +184,41 @@ class AgendaQuincenalService:
 
             for slot in cronograma_semanal:
                 fecha_exacta = lunes_inicio + timedelta(days=slot["offset"])
-                
-                # 🌟 REGLA DE ORO: Identificamos si el bloque actual evaluado es Sábado AM
-                # dia_semana = 5 representa al Sábado según el estándar que cargamos
                 es_sabado_am = (slot["offset"] == 5 and slot["turno"] == "AM")
                 
-                territorio_asignado = None
+                territorio_assigned = None
                 
                 for t in pool_territorios:
-                    # A) Validación básica de turno habilitado por el territorio
                     cumple_turno = t["permite_am"] if slot["turno"] == "AM" else t["permite_pm"]
-                    
-                    # B) Filtro estricto de exclusión de zonas:
-                    # Evaluamos si el territorio pertenece al grupo de Sábado AM Estricto
                     es_restringido = (t["zona"] == 3) or (t["zona"] == 2 and 28 <= t["numero"] <= 31)
                     
-                    # Si el territorio es restringido pero NO estamos parados en un Sábado AM, pasamos de largo
                     if es_restringido and not es_sabado_am:
                         continue
                     
-                    # Si pasó los filtros y el turno coincide, lo elegimos
                     if cumple_turno:
-                        territorio_asignado = t
+                        territorio_assigned = t
                         break
                 
-                # Si encontramos un territorio que encaje en el bloque, lo removemos y lo guardamos
-                if territorio_asignado:
-                    pool_territorios.remove(territorio_asignado)
+                if territorio_assigned:
+                    pool_territorios.remove(territorio_assigned)
                     
-                    dias_atraso = (fecha_exacta - territorio_asignado["ultima_fecha"]).days
-                    score_final = 999 if territorio_asignado["ultima_fecha"] == date(1970, 1, 1) else dias_atraso
+                    dias_atraso = (fecha_exacta - territorio_assigned["ultima_fecha"]).days
+                    score_final = 999 if territorio_assigned["ultima_fecha"] == date(1970, 1, 1) else dias_atraso
+
+                    # Formateamos el string del horario estético usando nuestro mapeo seguro
+                    nombre_bloque_original = slot["label"]
+                    horario_formateado = mapeo_horarios.get(nombre_bloque_original, f"{nombre_bloque_original} 10:00 hs")
 
                     salidas_semana.append({
-                        "territorio_id": territorio_asignado["id"],
-                        "numero": territorio_asignado["numero"],
-                        "zona": territorio_asignado["zona"], # Agregamos la zona para que React pueda pintarla
-                        "fecha": fecha_exacta,
-                        "turno": slot["turno"],
-                        "bloque_nombre": slot["label"],
-                        "score": score_final
+                        "fecha": fecha_exacta.strftime("%Y-%m-%d"),
+                        "horario": horario_formateado, # 📌 Ej: "Lunes 16:00 hs"
+                        "territorio_id": territorio_assigned["id"],
+                        "territorio_numero": territorio_assigned["numero"],
+                        "zona": territorio_assigned["zona"],
+                        "score": score_final,
+                        "punto_encuentro": "A confirmar", # Default para que Maxi o el usuario editen en el Front
+                        "conductor_id": None,             # Vacío para asignar en el Front
+                        "conductor_nombre": "Sin asignar" # Etiqueta inicial clara
                     })
 
             propuesta_completa.append({
@@ -213,5 +227,8 @@ class AgendaQuincenalService:
                 "salidas": salidas_semana
             })
 
-        return propuesta_completa      
-    
+        # Retornamos la propuesta enriquecida y el listado de conductores útil para los select del frontend
+        return {
+            "propuesta": propuesta_completa,
+            "conductores_disponibles": listado_conductores
+        }
