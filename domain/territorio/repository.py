@@ -62,6 +62,9 @@ class TerritorioRepositoryProtocol(Protocol):
         """
         ...
     
+    def obtener_zona_de_territorio(self, numero: int) -> int | None:
+        """Busca el territorio por su número y devuelve el valor numérico de su zona."""
+        ...
 
 # ─────────────────────────────────────────────
 # 2. Implementación SQLAlchemy
@@ -231,3 +234,11 @@ class TerritorioRepository:
         """
         result = self.db.execute(text(query), {"num": numero}).mappings().first()
         return result
+    
+    def obtener_zona_de_territorio(self, numero: int) -> int | None:
+        """
+        Busca la zona directa desde la tabla territorios utilizando el número público.
+        """
+        sql = text("SELECT zona FROM territorios WHERE numero = :numero")
+        row = self.db.execute(sql, {"numero": numero}).mappings().first()
+        return row["zona"] if row else None
