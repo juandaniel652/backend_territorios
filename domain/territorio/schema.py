@@ -102,3 +102,23 @@ class TerritorioPlanillaInfo(BaseModel):
     def desde_db(cls, datos_db):
         # Aquí 'datos_db' sería lo que devuelva tu nueva query
         return cls(**datos_db)
+
+class AsignacionPosicionada(BaseModel):
+    """Shape de una asignación enriquecida con su ubicación exacta en planillas."""
+    id: int
+    conductor: str
+    fecha_asignado: Optional[date] = None
+    fecha_completado: Optional[date] = None
+    cantidad_abarcado: Optional[str] = None
+    ciclo: int
+    fila: int
+    nombre_planilla: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class HistorialPosicionadoOut(BaseModel):
+    """Respuesta completa para GET /territorios/{numero}/historial-posicionado."""
+    territorio: int
+    historial_posicionado: list[AsignacionPosicionada]
+    mensaje: Optional[str] = None

@@ -30,7 +30,9 @@ from domain.territorio.schema import (
     TerritorioConAsignacionesOut,
     SugerenciaTerritorio,
     SugerenciasOut,
-    TerritorioPlanillaInfo
+    TerritorioPlanillaInfo,
+    HistorialPosicionadoOut,
+    AsignacionPosicionada
 )
 
 
@@ -343,3 +345,55 @@ class TerritorioService:
         rango_txt = rangos.get(zona, f"Zona {zona}")
 
         return f"{proximo_numero}° Planilla, Casas {rango_txt}; ({anio_servicio})"
+    
+    def obtener_historial_posicionado(self, numero: int) -> HistorialPosicionadoOut:
+        """
+        Cruza el historial con la posición matemática que tuvo cada salida en las planillas,
+        ordenado estrictamente de manera cronológica (desempatando por ID).
+        """
+        # 1. Obtener la zona para el cálculo del nombre dinámico de planilla
+        zona = self.repo.obtener_zona_de_territorio(numero) or 1
+
+        # 2. Traer asignaciones existentes
+        asignaciones_crudas = self.repo.obtener_asignaciones_historial(numero)
+
+        if not asignaciones_crudas:
+            return HistorialPosicionadoOut(
+                territorio=numero,
+                historial_posicionado=[],
+                mensaje="No hay asignaciones para este territorio",
+            )
+
+        # 3. Ordenar cronológicamente (Fecha, ID) para resolver empates sin sobreingeniería
+        asignaciones_ordenadas = sorted(
+            asignaciones_crudas,
+            key=lambda x: (x.fecha_asignado if x.fecha_asignado else date.min, x.id)
+        )
+
+        historial_posicionado = []
+
+        # 4. Mapeo incremental base 1
+        for i, asig in enumerate(asignaciones_ordenadas, start=1):
+            ciclo_asig = ((i - 1) // 5) + 1
+            fila_asig = ((i - 1) % 5) + 1
+
+            # Reutiliza tu lógica dinámica actual que lee el diccionario fijos o base de datos
+            nombre_planilla = self.obtener_nombre_dinamico(zona, ciclo_asig)
+
+            historial_posicionado.append(
+                AsignacionPosicionada(
+                    id=asig.id,
+                    conductor=asig.conductor,
+                    fecha_asignado=asig.fecha_asignado,
+                    fecha_completado=asig.fecha_completado,
+                    cantidad_abarcado=asig.cantidad_abarcado,
+                    ciclo=ciclo_asig,
+                    fila=fila_asig,
+                    nombre_planilla=nombre_planilla
+                )
+            )
+
+        return HistorialPosicionadoOut(
+            territorio=numero,
+            historial_posicionado=historial_posicionado
+        )

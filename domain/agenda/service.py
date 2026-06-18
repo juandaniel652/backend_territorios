@@ -147,7 +147,8 @@ class AgendaQuincenalService:
             "Jueves PM": "Jueves 16:00 hs",
             "Viernes AM": "Viernes 10:00 hs",
             "Viernes PM": "Viernes 16:00 hs",
-            "Domingo AM": "Domingo 10:00 hs"
+            "Sábado AM": "Sábado 10:00 hs",
+            "Sábado PM": "Sábado 16:00 hs"
         }
 
         # 1. Traemos TODOS los territorios ordenados por su atraso real (score)

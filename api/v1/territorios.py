@@ -20,11 +20,11 @@ from sqlalchemy.orm import Session
 from domain.territorio.model import Territorio
 from domain.asignacion.model import Asignacion
 from domain.conductor.model import Conductor
-from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOut, AgendaItemIn, PropuestaDiaOut, TerritorioPlanillaInfo
+from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOut, AgendaItemIn, PropuestaDiaOut, TerritorioPlanillaInfo, HistorialPosicionadoOut, AsignacionPosicionada
 from core.database import get_db
 from domain.territorio.repository import TerritorioRepository
 from domain.territorio.service import TerritorioService
-from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOut
+
 from datetime import date
 from typing import List
 
@@ -108,3 +108,18 @@ def get_territorio_planilla_status(
     service: TerritorioService = Depends(get_territorio_service)
 ):
     return service.obtener_estado_planilla(numero)
+
+@router.get(
+    "/{numero}/historial-posicionado",
+    response_model=HistorialPosicionadoOut,
+    summary="Historial cronológico posicionado en sus respectivas planillas",
+)
+def obtener_historial_posicionado(
+    numero: int,
+    service: TerritorioService = Depends(get_territorio_service),
+):
+    """
+    Retorna todo el historial del territorio ordenado por fecha, asignándole
+    a cada salida su Ciclo, Fila y Nombre de Planilla correspondiente.
+    """
+    return service.obtener_historial_posicionado(numero)
