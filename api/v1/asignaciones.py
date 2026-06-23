@@ -24,6 +24,9 @@ from domain.asignacion.schema import AgendaConfirmar
 from domain.territorio.service import TerritorioService
 from domain.planilla.repository import PlanillaRepository
 
+from fastapi import APIRouter, Depends, BackgroundTasks
+from domain.planilla.service import PlanillaService
+
 
 router = APIRouter(prefix="/asignaciones", tags=["asignaciones"])
 
@@ -57,10 +60,22 @@ def get_asignacion_service(db: Session = Depends(get_db)) -> AsignacionService:
 )
 def crear_asignacion(
     data: AsignacionCreate,
+    background_tasks: BackgroundTasks, # <-- INYECTAMOS AQUÍ
     service: AsignacionService = Depends(get_asignacion_service),
     _: CurrentUser = Depends(require_admin),
 ):
-    return service.crear_asignacion(data)
+    # 1. El servicio realiza el guardado atómico en DB y devuelve la metadata calculada
+    res = service.crear_asignacion(data)
+    
+    # 2. Si el servicio generó los datos para Google Sheets, disparamos la tarea de fondo
+    if "sheets_payload" in res:
+        planilla_service = PlanillaService()
+        background_tasks.add_task(
+            planilla_service.sincronizar_registro_bisturi, 
+            res["sheets_payload"]
+        )
+    
+    return res
 
 
 # ── PUT /asignaciones/{id} ───────────────────────────────────────────────────

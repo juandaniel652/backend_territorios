@@ -30,7 +30,7 @@ from core.utils import obtener_anio_servicio
 from domain.asignacion.schema import AsignacionCreate
 from domain.planilla.model import NombrePlanilla
 from datetime import date
-
+from domain.planilla.service import PlanillaService
 
 class AsignacionService:
 
@@ -125,11 +125,24 @@ class AsignacionService:
         self.db.add(nueva_asignacion)
         self.db.commit()
 
+        # Recorremos el nombre de la cabecera guardada o autogenerada para pasarlo al bisturí
+        nombre_planilla_final = planilla_existente.nombre_planilla if planilla_existente else nombre_autogenerado
+
         # 7. Retornar la respuesta estructurada que espera AsignacionCreatedOut
         return {
             "message": "Asignación registrada exitosamente con control dinámico de planillas",
             "asignacion_id": nueva_asignacion.id,
-            "conductor_creado": conductor_creado
+            "conductor_creado": conductor_creado,
+            # Pasamos esto de manera transparente para el router
+            "sheets_payload": {
+                "numero_territorio": territorio.numero,
+                "conductor": conductor_nombre_clean,
+                "fecha_asignado": data.fecha_asignado,
+                "fecha_completado": data.fecha_completado,
+                "cantidad_abarcado": data.cantidad_abarcado,
+                "fila": fila_calculada,
+                "nombre_planilla": nombre_planilla_final
+            }
         }
     
     # ── NUEVO: Actualizar ────────────────────────────────────────────────────
