@@ -1,7 +1,7 @@
 from core.utils import obtener_anio_servicio
 import os
 from core.google_sheets import obtener_cliente_sheets
-
+import traceback
 
 class PlanillaService:
 
@@ -74,7 +74,8 @@ class PlanillaService:
         except Exception as e:
             # Capturamos el error para que un fallo de red o credenciales en Sheets NO rompa la BD del Backend
 
-            pass
+            print("[SHEETS ERROR] Falló la sincronización con Google Sheets:")
+            traceback.print_exc()
     
     
     def _calcular_columna_base(self, numero_territorio: int) -> int:
