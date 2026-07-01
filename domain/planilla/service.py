@@ -90,8 +90,27 @@ class PlanillaService:
             territorio_idx = numero_territorio - inicio_territorio
             fila_base = VALORES_FILAS[territorio_idx]
 
-            # 2. Abrir la hoja
-            spreadsheet = client.open(nombre_planilla)
+            #2. Editar o inserar en hoja
+
+            try:
+                spreadsheet = client.open(nombre_planilla)
+            except gspread.exceptions.SpreadsheetNotFound:
+                print(f"⚠️ [SHEETS ADVERTENCIA] No se encontró la planilla '{nombre_planilla}'. Intentando crearla...")
+                try:
+                    # Crea una planilla nueva en la raíz de tu Drive con ese nombre exacto
+                    spreadsheet = client.create(nombre_planilla)
+                    
+                    # 💡 NOTA: Las planillas nuevas vienen vacías. 
+                    # Si querés que hereden el diseño de tus planillas anteriores, 
+                    # podrías buscar una planilla modelo/base y clonarla en su lugar:
+                    # plantilla_base = client.open("Casas 1-20; (2026)") # Tu modelo base
+                    # spreadsheet = client.copy(plantilla_base.id, title=nombre_planilla)
+                    
+                    print(f"✨ [SHEETS CREADO] Se generó automáticamente el archivo físico en Drive: '{nombre_planilla}'")
+                except Exception as create_err:
+                    print(f"❌ [SHEETS ERROR] No se pudo crear la planilla en Drive: {str(create_err)}")
+                    return
+            
             sheet = spreadsheet.sheet1
 
             # 3. Localizar coordenadas físicas exactas del script original
