@@ -226,7 +226,7 @@ class AgendaQuincenalService:
 
             propuesta_completa.append({
                 "semana_numero": idx_semana,
-                "rango_fechas": f"Del {lunes_inicio.strftime('%d/%m')} al {(lunes_inicio + timedelta(days=5)).strftime('%d/%m')}",
+                "rango_fechas": f"Del {lunes_inicio.strftime('%d/%m')} al {(lunes_inicio + timedelta(days=6)).strftime('%d/%m')}",
                 "salidas": salidas_semana
             })
 
