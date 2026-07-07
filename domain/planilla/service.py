@@ -91,7 +91,7 @@ class PlanillaService:
             fila_base = VALORES_FILAS[territorio_idx]
 
             #2. Editar o inserar en hoja
-
+            #RECORDA... TENES QUE AJUSTAR EL FECHA DE ASINGADO DEL FRON A DOMINGO, ESTA EN LUNES
             try:
                 spreadsheet = client.open(nombre_planilla)
             except gspread.exceptions.SpreadsheetNotFound:
