@@ -212,7 +212,7 @@ class TerritorioService:
             # Clasificación visual para el frontend
             if 42 <= num <= 60: 
                 zona_tag = "Zona 3 (Sábado)"
-            elif num in [28, 29, 30, 31, 39, 40]: 
+            elif num in [28, 29, 30, 31, 39, 40, 41]: 
                 zona_tag = "Zona 2 (Crítica)"
             else: 
                 zona_tag = "Zona Estándar"

@@ -190,7 +190,7 @@ class AgendaQuincenalService:
                 
                 for t in pool_territorios:
                     cumple_turno = t["permite_am"] if slot["turno"] == "AM" else t["permite_pm"]
-                    es_restringido = (t["zona"] == 3) or (t["zona"] == 2 and 28 <= t["numero"] <= 31)
+                    es_restringido = (t["zona"] == 3) or (t["zona"] == 2 and 28 <= t["numero"] <= 31 and 39 <= t["numero"] <= 41 )
                     
                     if es_restringido and not es_sabado_am:
                         continue
