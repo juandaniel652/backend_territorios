@@ -224,9 +224,24 @@ class AgendaQuincenalService:
                         "conductor_nombre": "Sin asignar" # Etiqueta inicial clara
                     })
 
+            domingo_fin = lunes_inicio + timedelta(days=6)
+            
+            # Diccionario para traducir meses a español de forma sencilla
+            meses = {
+                1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+                5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+                9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+            }
+            
+            # Verificamos si el lunes y el domingo caen en el mismo mes
+            if lunes_inicio.month == domingo_fin.month:
+                texto_rango = f"Semana del {lunes_inicio.day} al {domingo_fin.day} de {meses[domingo_fin.month]} {domingo_fin.year}"
+            else:
+                texto_rango = f"Semana del {lunes_inicio.day} de {meses[lunes_inicio.month]} al {domingo_fin.day} de {meses[domingo_fin.month]} {domingo_fin.year}"
+
             propuesta_completa.append({
-                "semana_numero": idx_semana,
-                "rango_fechas": f"Del {lunes_inicio.strftime('%d/%m')} al {(lunes_inicio + timedelta(days=6)).strftime('%d/%m')}",
+                "semana_numero": idx_semana, # Lo mantengo por si el backend lo usa, pero en el front usás rango_fechas
+                "rango_fechas": texto_rango,
                 "salidas": salidas_semana
             })
 
