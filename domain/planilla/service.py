@@ -22,16 +22,67 @@ class PlanillaService:
         self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     @staticmethod
-    def generar_nombre_automatico(zona: int, ciclo: int) -> str:
-        anio_servicio = obtener_anio_servicio()
-        rangos = {
-            1: "Casas 1-20",
-            2: "Casas 21-40",
-            3: "Casas 41-60"
+    def generar_nombre_automatico(zona: int, ciclo: int, planilla_repo=None) -> str:
+        """
+        Genera el nombre oficial de la planilla de forma idéntica a territorio.
+        Busca primero en el mapeo histórico fijo y, si no está, calcula el nombre dinámico.
+        """
+        nombres_fijos = {
+            1: {
+                1: '1° Planilla, Casas 1-20; (2025)',
+                2: '2° Planilla, Casas 1-20; (2025)',
+                3: '3° Planilla, Casas 1-20; (2025)',
+                4: '1° Planilla, Casas 1-20; (2026)'
+            },
+            2: {
+                1: '2° Planilla, Casas 21-40; (2024)',
+                2: '3° Planilla, Casas 21-40; (2024)',
+                3: '4° Planilla, Casas 21-40; (2024)',
+                4: '1° Planilla, Casas 21-40; (2025)',
+                5: '1° Planilla, Casas 21-40; (2026)',
+                6: '2° Planilla, Casas 21-40; (2026)'
+            },
+            3: {
+                1: '1° Planilla, Casas 41-60; (2024)',
+                2: '2° Planilla, Casas 41-60; (2024)',
+                3: '1⁰ Planilla, Casas 41-60; (2025)',
+                4: '1ª Planilla, Casas 41-60; (2026)'
+            }
         }
-        rango = rangos.get(zona, f"Zona {zona}")
-        return f"{rango}; ({anio_servicio})"
 
+        # 1. ¡PRIMERO REVISAR EL DICCIONARIO HISTÓRICO!
+        nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
+        if nombre_mapeado:
+            return nombre_mapeado
+
+        # 2. Lógica dinámica para ciclos nuevos que se creen solos en la DB
+        anio_servicio = obtener_anio_servicio()
+        proximo_numero = 1
+
+        if planilla_repo:
+            try:
+                # Traemos la última planilla real creada en la DB para esta zona
+                ultima_planilla_db = planilla_repo.obtener_ultima_planilla_creada(zona, ciclo)
+                if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
+                    from utils.recorrer_filas import extraer_info_planilla
+                    num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
+                    
+                    if num_anterior is not None and anio_anterior is not None:
+                        if anio_anterior == anio_servicio:
+                            proximo_numero = num_anterior + 1
+            except Exception:
+                # Si algo falla leyendo el repositorio por estructura, usamos el ciclo actual como fallback
+                proximo_numero = ciclo
+
+        else:
+            # Si no pasaron el repositorio, usamos de forma segura el ciclo como número correlativo
+            proximo_numero = ciclo
+
+        rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
+        rango_txt = rangos.get(zona, f"Zona {zona}")
+
+        return f"{proximo_numero}° Planilla, Casas {rango_txt}; ({anio_servicio})"
+    
     def detectar_zona_por_nombre(self, nombre_planilla: str) -> int:
         nombre_lower = nombre_planilla.lower()
         if "1-20" in nombre_lower:
