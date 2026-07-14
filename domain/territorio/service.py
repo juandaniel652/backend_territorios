@@ -105,7 +105,7 @@ class TerritorioService:
         con un mensaje informativo (no lanza 404 — el territorio puede existir
         sin asignaciones todavía).
         """
-        asignaciones = self.repo.obtener_asignaciones_historial(numero, reverse=True)
+        asignaciones = self.repo.obtener_asignaciones_historial(numero)
 
         if not asignaciones:
             return TerritorioConAsignacionesOut(
@@ -113,6 +113,8 @@ class TerritorioService:
                 asignaciones=[],
                 mensaje="No hay asignaciones para este territorio",
             )
+
+        asignaciones.reverse()
 
         return TerritorioConAsignacionesOut(
             territorio=numero,
