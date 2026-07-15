@@ -24,6 +24,7 @@ from datetime import date, timedelta
 from .repository import TerritorioRepository
 from time import time
 from fastapi import HTTPException
+from typing import List
 
 from domain.territorio.repository import TerritorioRepositoryProtocol
 from domain.territorio.schema import (
@@ -38,6 +39,7 @@ from domain.territorio.schema import (
 
 from core.utils import extraer_info_planilla, obtener_anio_servicio
 from domain.planilla.repository import PlanillaRepository
+from domain.territorio.schema import SemanaDisponible, ReporteTerritorioSemanal
 
 # ─────────────────────────────────────────────
 # Configuración de rangos válidos y cache
@@ -52,6 +54,11 @@ RANGOS_VALIDOS: dict[str, tuple[int, int]] = {
 _CACHE: dict[str, tuple[SugerenciasOut, float]] = {}
 CACHE_TTL = 300  # segundos
 
+# Diccionario para nombres de meses cortos en español
+MESES_ES = {
+    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
+    7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+}
 
 # ─────────────────────────────────────────────
 # Reglas de negocio puras
@@ -399,3 +406,50 @@ class TerritorioService:
             territorio=numero,
             historial_posicionado=historial_posicionado
         )
+
+    def obtener_semanas_disponibles(self) -> List[SemanaDisponible]:
+        """
+        Agrupa las fechas con asignaciones de la DB en semanas naturales (Lunes a Domingo)
+        y devuelve la lista formateada para alimentar el dropdown del frontend.
+        """
+        fechas = self.repository.obtener_todas_las_fechas_asignadas()
+        if not fechas:
+            return []
+
+        semanas_registradas = set()
+        resultado: List[SemanaDisponible] = []
+
+        for f in fechas:
+            # weekday() -> Lunes es 0, Domingo es 6
+            lunes = f - timedelta(days=f.weekday())
+            domingo = lunes + timedelta(days=6)
+
+            rango = (lunes, domingo)
+            if rango not in semanas_registradas:
+                semanas_registradas.add(rango)
+
+                # Formateamos un label amigable en español
+                mes_lunes = MESES_ES[lunes.month]
+                mes_domingo = MESES_ES[domingo.month]
+
+                if lunes.month == domingo.month:
+                    label = f"Del {lunes.day} al {domingo.day} de {mes_lunes} {lunes.year}"
+                else:
+                    label = f"Del {lunes.day} de {mes_lunes} al {domingo.day} de {mes_domingo} {lunes.year}"
+
+                resultado.append(SemanaDisponible(
+                    label=label,
+                    fecha_inicio=lunes,
+                    fecha_fin=domingo
+                ))
+
+        # Las ordenamos cronológicamente descendentes (la semana más nueva primero)
+        resultado.sort(key=lambda x: x.fecha_inicio, reverse=True)
+        return resultado
+
+    def obtener_reporte_semanal(self, fecha_inicio: date, fecha_fin: date) -> List[ReporteTerritorioSemanal]:
+        """Obtiene y mapea los territorios trabajados en la semana dada."""
+        datos = self.repository.obtener_reporte_por_rango(fecha_inicio, fecha_fin)
+        return [ReporteTerritorioSemanal(**item) for item in datos]
+    
+    

@@ -242,3 +242,57 @@ class TerritorioRepository:
         sql = text("SELECT zona FROM territorios WHERE numero = :numero")
         row = self.db.execute(sql, {"numero": numero}).mappings().first()
         return row["zona"] if row else None
+    
+
+    # --- NUEVOS MÉTODOS PARA EL REPORTE SEMANAL ---
+
+    def obtener_todas_las_fechas_asignadas(self) -> list[date]:
+        """Obtiene todas las fechas de asignación únicas ordenadas de forma descendente."""
+        # Evitamos importar Asignacion arriba si genera ciclos; lo importamos localmente
+        from domain.asignacion.model import Asignacion
+
+        result = (
+            self.db.query(Asignacion.fecha_asignado)
+            .filter(Asignacion.fecha_asignado != None)
+            .distinct()
+            .order_by(Asignacion.fecha_asignado.desc())
+            .all()
+        )
+        return [row[0] for row in result]
+
+    def obtener_reporte_por_rango(self, fecha_inicio: date, fecha_fin: date) -> list[dict]:
+        """Realiza el JOIN para obtener territorios, conductores y detalles en el rango."""
+        from domain.asignacion.model import Asignacion
+        from domain.conductor.model import Conductor
+        from domain.territorio.model import Territorio
+
+        results = (
+            self.db.query(
+                Territorio.numero.label("territorio_numero"),
+                Territorio.zona.label("zona"),
+                Conductor.nombre_completo.label("conductor_nombre"),
+                Asignacion.fecha_asignado.label("fecha_asignado"),
+                Asignacion.fecha_completado.label("fecha_completado"),
+                Asignacion.cantidad_abarcado.label("cantidad_abarcado")
+            )
+            .join(Asignacion, Asignacion.territorio_id == Territorio.id)
+            .outerjoin(Conductor, Asignacion.conductor_id == Conductor.id)
+            .filter(
+                Asignacion.fecha_asignado >= fecha_inicio,
+                Asignacion.fecha_asignado <= fecha_fin
+            )
+            .order_by(Territorio.numero.asc())
+            .all()
+        )
+
+        return [
+            {
+                "territorio_numero": r.territorio_numero,
+                "zona": r.zona,
+                "conductor_nombre": r.conductor_nombre,
+                "fecha_asignado": r.fecha_asignado,
+                "fecha_completado": r.fecha_completado,
+                "cantidad_abarcado": r.cantidad_abarcado
+            }
+            for r in results
+        ]
