@@ -116,9 +116,31 @@ class AsignacionPosicionada(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
 class HistorialPosicionadoOut(BaseModel):
     """Respuesta completa para GET /territorios/{numero}/historial-posicionado."""
     territorio: int
     historial_posicionado: list[AsignacionPosicionada]
     mensaje: Optional[str] = None
+    
+
+# --- NUEVOS ESQUEMAS PARA REPORTES SEMANALES ---
+
+class SemanaDisponible(BaseModel):
+    """Representa una semana calendario con datos de asignaciones para el selector."""
+    label: str  # Ejemplo: "Del 12 al 18 de Oct 2026"
+    fecha_inicio: date
+    fecha_fin: date
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReporteTerritorioSemanal(BaseModel):
+    """Fila de reporte de territorio hecho en una semana específica."""
+    territorio_numero: int
+    zona: int
+    conductor_nombre: Optional[str] = None
+    fecha_asignado: Optional[date] = None
+    fecha_completado: Optional[date] = None
+    cantidad_abarcado: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
