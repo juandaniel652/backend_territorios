@@ -409,10 +409,10 @@ class TerritorioService:
 
     def obtener_semanas_disponibles(self) -> List[SemanaDisponible]:
         """
-        Agrupa las fechas de asignación empezando siempre el Domingo (día de asignación)
-        hasta el Sábado siguiente, mostrando un rango limpio para el selector.
+        Agrupa las semanas utilizando las fechas en las que se COMPLETARON territorios.
         """
-        fechas = self.repo.obtener_todas_las_fechas_asignadas()
+        # 💡 Cambiado para buscar fechas de finalización reales
+        fechas = self.repo.obtener_todas_las_fechas_completadas()
         if not fechas:
             return []
 
@@ -420,8 +420,7 @@ class TerritorioService:
         resultado: List[SemanaDisponible] = []
 
         for f in fechas:
-            # En Python, f.weekday() -> Lunes=0, ..., Sábado=5, Domingo=6
-            # Si es domingo (6), restamos 0. Si es lunes (0), restamos 1 para volver al domingo anterior.
+            # Calculamos de Domingo a Sábado para la semana de corte
             dias_desde_domingo = (f.weekday() + 1) % 7
             domingo = f - timedelta(days=dias_desde_domingo)
             sabado = domingo + timedelta(days=6)
@@ -444,7 +443,6 @@ class TerritorioService:
                     fecha_fin=sabado
                 ))
 
-        # Ordenar de la semana más nueva a la más antigua
         resultado.sort(key=lambda x: x.fecha_inicio, reverse=True)
         return resultado
 

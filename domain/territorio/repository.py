@@ -261,12 +261,13 @@ class TerritorioRepository:
         return [row[0] for row in result]
 
     def obtener_reporte_por_rango(self, fecha_inicio: date, fecha_fin: date) -> list[dict]:
-        """Realiza el JOIN para obtener territorios, conductores y detalles en el rango."""
+        """
+        Obtiene los territorios que fueron COMPLETADOS dentro del rango de la semana seleccionada.
+        """
         from domain.asignacion.model import Asignacion
         from domain.conductor.model import Conductor
         from domain.territorio.model import Territorio
 
-        # ... (dentro de tu query en repository.py)
         results = (
             self.db.query(
                 Territorio.numero.label("territorio_numero"),
@@ -279,11 +280,12 @@ class TerritorioRepository:
             .join(Asignacion, Asignacion.territorio_id == Territorio.id)
             .outerjoin(Conductor, Asignacion.conductor_id == Conductor.id)
             .filter(
-                Asignacion.fecha_asignado >= fecha_inicio,
-                Asignacion.fecha_asignado <= fecha_fin
+                # 💡 CLAVE 1: Filtramos por la fecha en que se terminó el trabajo
+                Asignacion.fecha_completado >= fecha_inicio,
+                Asignacion.fecha_completado <= fecha_fin
             )
-            # Ordenamos por la fecha en que se entregó el territorio y luego el número
-            .order_by(Asignacion.fecha_asignado.asc(), Territorio.numero.asc())
+            # 💡 CLAVE 2: Ordenamos cronológicamente por completado, luego por número
+            .order_by(Asignacion.fecha_completado.asc(), Territorio.numero.asc())
             .all()
         )
 
@@ -298,3 +300,16 @@ class TerritorioRepository:
             }
             for r in results
         ]
+
+    def obtener_todas_las_fechas_completadas(self) -> list[date]:
+        """Obtiene todas las fechas de finalización únicas ordenadas de forma desc."""
+        from domain.asignacion.model import Asignacion
+
+        result = (
+            self.db.query(Asignacion.fecha_completado)
+            .filter(Asignacion.fecha_completado != None)
+            .distinct()
+            .order_by(Asignacion.fecha_completado.desc())
+            .all()
+        )
+        return [row[0] for row in result]
