@@ -266,6 +266,7 @@ class TerritorioRepository:
         from domain.conductor.model import Conductor
         from domain.territorio.model import Territorio
 
+        # ... (dentro de tu query en repository.py)
         results = (
             self.db.query(
                 Territorio.numero.label("territorio_numero"),
@@ -281,7 +282,8 @@ class TerritorioRepository:
                 Asignacion.fecha_asignado >= fecha_inicio,
                 Asignacion.fecha_asignado <= fecha_fin
             )
-            .order_by(Territorio.numero.asc())
+            # Ordenamos por la fecha en que se entregó el territorio y luego el número
+            .order_by(Asignacion.fecha_asignado.asc(), Territorio.numero.asc())
             .all()
         )
 

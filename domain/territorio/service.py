@@ -409,8 +409,8 @@ class TerritorioService:
 
     def obtener_semanas_disponibles(self) -> List[SemanaDisponible]:
         """
-        Agrupa las fechas con asignaciones de la DB en semanas naturales (Lunes a Domingo)
-        y devuelve la lista formateada para alimentar el dropdown del frontend.
+        Agrupa las fechas de asignación empezando siempre el Domingo (día de asignación)
+        hasta el Sábado siguiente, mostrando un rango limpio para el selector.
         """
         fechas = self.repo.obtener_todas_las_fechas_asignadas()
         if not fechas:
@@ -420,30 +420,31 @@ class TerritorioService:
         resultado: List[SemanaDisponible] = []
 
         for f in fechas:
-            # weekday() -> Lunes es 0, Domingo es 6
-            lunes = f - timedelta(days=f.weekday())
-            domingo = lunes + timedelta(days=6)
+            # En Python, f.weekday() -> Lunes=0, ..., Sábado=5, Domingo=6
+            # Si es domingo (6), restamos 0. Si es lunes (0), restamos 1 para volver al domingo anterior.
+            dias_desde_domingo = (f.weekday() + 1) % 7
+            domingo = f - timedelta(days=dias_desde_domingo)
+            sabado = domingo + timedelta(days=6)
 
-            rango = (lunes, domingo)
+            rango = (domingo, sabado)
             if rango not in semanas_registradas:
                 semanas_registradas.add(rango)
 
-                # Formateamos un label amigable en español
-                mes_lunes = MESES_ES[lunes.month]
                 mes_domingo = MESES_ES[domingo.month]
+                mes_sabado = MESES_ES[sabado.month]
 
-                if lunes.month == domingo.month:
-                    label = f"Del {lunes.day} al {domingo.day} de {mes_lunes} {lunes.year}"
+                if domingo.month == sabado.month:
+                    label = f"Del Dom {domingo.day} al Sab {sabado.day} de {mes_domingo} {domingo.year}"
                 else:
-                    label = f"Del {lunes.day} de {mes_lunes} al {domingo.day} de {mes_domingo} {lunes.year}"
+                    label = f"Del Dom {domingo.day} de {mes_domingo} al Sab {sabado.day} de {mes_sabado} {domingo.year}"
 
                 resultado.append(SemanaDisponible(
                     label=label,
-                    fecha_inicio=lunes,
-                    fecha_fin=domingo
+                    fecha_inicio=domingo,
+                    fecha_fin=sabado
                 ))
 
-        # Las ordenamos cronológicamente descendentes (la semana más nueva primero)
+        # Ordenar de la semana más nueva a la más antigua
         resultado.sort(key=lambda x: x.fecha_inicio, reverse=True)
         return resultado
 
