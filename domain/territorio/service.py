@@ -412,7 +412,7 @@ class TerritorioService:
         Agrupa las fechas con asignaciones de la DB en semanas naturales (Lunes a Domingo)
         y devuelve la lista formateada para alimentar el dropdown del frontend.
         """
-        fechas = self.repository.obtener_todas_las_fechas_asignadas()
+        fechas = self.repo.obtener_todas_las_fechas_asignadas()
         if not fechas:
             return []
 
@@ -449,7 +449,7 @@ class TerritorioService:
 
     def obtener_reporte_semanal(self, fecha_inicio: date, fecha_fin: date) -> List[ReporteTerritorioSemanal]:
         """Obtiene y mapea los territorios trabajados en la semana dada."""
-        datos = self.repository.obtener_reporte_por_rango(fecha_inicio, fecha_fin)
+        datos = self.repo.obtener_reporte_por_rango(fecha_inicio, fecha_fin)
         return [ReporteTerritorioSemanal(**item) for item in datos]
     
     
