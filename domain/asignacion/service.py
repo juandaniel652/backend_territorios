@@ -60,7 +60,17 @@ class AsignacionService:
         estado_vista = self.territorio_repo.obtener_estado_detallado(territorio.numero)
         
         if estado_vista:
-            ciclo_calculado = estado_vista["ciclo_actual"]
+            # CORRECCIÓN DE BISTURÍ: 
+            # Si el estado dice que la próxima fila es 1 (y ya hay salidas acumuladas),
+            # significa que entramos al próximo ciclo (proximo_ciclo).
+            if "proximo_ciclo" in estado_vista:
+                ciclo_calculado = estado_vista["proximo_ciclo"]
+            else:
+                # O si calculás directo según la fila:
+                actual_c = estado_vista["ciclo_actual"]
+                fila_calc = estado_vista["proxima_fila"]
+                ciclo_calculado = actual_c + 1 if fila_calc == 1 and estado_vista.get("total_salidas", 0) > 0 else actual_c
+            
             fila_calculada = estado_vista["proxima_fila"]
             zona_territorio = estado_vista["zona"]
         else:
