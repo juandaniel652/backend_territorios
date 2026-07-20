@@ -263,25 +263,19 @@ class TerritorioService:
         total = info_db["total_salidas"]
         actual_ciclo = ((total - 1) // 5) + 1
         actual_fila = ((total - 1) % 5) + 1
-        zona = info_db.get("zona")
+        zona = info_db.get("zona") or 1
 
-        # --- DETERMINAR EL NOMBRE ---
-        nombre_db = info_db.get("nombre_planilla")
-        
-        # Corregimos la condición: Si la base de datos YA tiene un nombre real asignado
-        # para este ciclo, lo respetamos a muerte. No calculamos nada nuevo.
-        if nombre_db and not nombre_db.startswith("Planilla "): 
-            nombre_planilla = nombre_db
-        else:
-            # Si está vacío o es un nombre genérico de plantilla nueva, ahí sí calculamos
-            nombre_planilla = self.obtener_nombre_dinamico(zona, actual_ciclo)
-
+        # Si la fila actual es 5, la PRÓXIMA asignación pertence al ciclo siguiente
         if actual_fila == 5:
             sig_ciclo = actual_ciclo + 1
             sig_fila = 1
         else:
             sig_ciclo = actual_ciclo
             sig_fila = actual_fila + 1
+
+        # IMPORTANTE: Para saber qué planilla abrir en la PRÓXIMA asignación, 
+        # evaluamos dinámicamente usando `sig_ciclo`, no el ciclo anterior.
+        nombre_planilla = self.obtener_nombre_dinamico(zona, sig_ciclo)
 
         return TerritorioPlanillaInfo(
             numero=numero,
