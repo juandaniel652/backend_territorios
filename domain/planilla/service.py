@@ -119,6 +119,15 @@ class PlanillaService:
         Inyecta una única asignación en tiempo real en las coordenadas físicas 
         exactas de Google Sheets calculadas por 'recorrer_fila_planilla'.
         """
+        
+        print("="*60)
+        print(f"DEBUG BISTURÍ:")
+        print(f" -> Planilla a abrir en Drive: {datos_registro.get('nombre_planilla')}")
+        print(f" -> Territorio: {datos_registro.get('numero_territorio')}")
+        print(f" -> Fila lógica (1-5): {datos_registro.get('fila')}")
+        print(f" -> Conductor: {datos_registro.get('conductor')}")
+        print("="*60)
+        
         try:
             client = obtener_cliente_sheets()
             
