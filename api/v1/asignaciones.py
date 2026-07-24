@@ -60,19 +60,36 @@ def get_asignacion_service(db: Session = Depends(get_db)) -> AsignacionService:
 )
 def crear_asignacion(
     data: AsignacionCreate,
-    background_tasks: BackgroundTasks, # <-- INYECTAMOS AQUÍ
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db), # <-- Inyectamos la sesión
     service: AsignacionService = Depends(get_asignacion_service),
     _: CurrentUser = Depends(require_admin),
 ):
-    # 1. El servicio realiza el guardado atómico en DB y devuelve la metadata calculada
+    # 1. El servicio realiza el guardado en DB
     res = service.crear_asignacion(data)
     
-    # 2. Si el servicio generó los datos para Google Sheets, disparamos la tarea de fondo
+    # 2. Si el servicio generó los datos para Google Sheets
     if "sheets_payload" in res:
-        planilla_service = PlanillaService()
+        # Inicializamos repositorios y servicios necesarios
+        territorio_repo = TerritorioRepository(db)
+        planilla_repo = PlanillaRepository(db)
+        territorio_service = TerritorioService(territorio_repo, planilla_repo)
+        
+        # Inyectamos territorio_service en PlanillaService
+        planilla_service = PlanillaService(
+            planilla_repo=planilla_repo,
+            territorio_service=territorio_service
+        )
+        
+        # Extraemos el numero_territorio desde el payload (asumiendo que viene como dict o int)
+        numero_territorio = res["sheets_payload"]
+        if isinstance(numero_territorio, dict):
+            numero_territorio = numero_territorio.get("numero_territorio")
+
+        # Disparamos la tarea de fondo con el número de territorio
         background_tasks.add_task(
-            planilla_service.sincronizar_registro_bisturi, 
-            res["sheets_payload"]
+            planilla_service.sincronizar_territorio_completo_a_drive,
+            numero_territorio
         )
     
     return res
