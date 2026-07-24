@@ -6,46 +6,31 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from core.database import get_db
-from api.deps import require_admin, CurrentUser
-from domain.asignacion.repository import AsignacionRepository
+from api.deps import require_admin, CurrentUser, get_asignacion_service
 from domain.asignacion.service import AsignacionService
 from domain.asignacion.schema import (
     AsignacionCreate,
     AsignacionUpdate,
-    AsignacionCreatedOut,
     AsignacionUpdatedOut,
     AsignacionDeletedOut,
+    AgendaConfirmar,
 )
-from domain.conductor.repository import ConductorRepository
-from domain.territorio.repository import TerritorioRepository
-from domain.asignacion.schema import AgendaConfirmar
-from domain.salida.repository import SalidaRepository
-from domain.asignacion.schema import AgendaConfirmar
-from domain.territorio.service import TerritorioService
 from domain.planilla.repository import PlanillaRepository
-
-from fastapi import APIRouter, Depends, BackgroundTasks
 from domain.planilla.service import PlanillaService
+from domain.territorio.repository import TerritorioRepository
+from domain.territorio.service import TerritorioService
 
 
 router = APIRouter(prefix="/asignaciones", tags=["asignaciones"])
 
 
-def get_asignacion_service(db: Session = Depends(get_db)) -> AsignacionService:
-    # Necesitamos estos para la automatización
+# ── Dependency: PlanillaService ──────────────────────────────────────────────
+def get_planilla_service(db: Session = Depends(get_db)) -> PlanillaService:
     territorio_repo = TerritorioRepository(db)
     planilla_repo = PlanillaRepository(db)
-    
-    # El territorio_service nos ayuda a calcular el estado actual
     territorio_service = TerritorioService(territorio_repo, planilla_repo)
-
-    return AsignacionService(
-        db=db,
-        asignacion_repo=AsignacionRepository(db),
-        territorio_repo=territorio_repo,
-        conductor_repo=ConductorRepository(db),
-        salida_repo=SalidaRepository(db),
-        # --- AGREGADOS ---
+    
+    return PlanillaService(
         planilla_repo=planilla_repo,
         territorio_service=territorio_service
     )
@@ -65,6 +50,7 @@ def crear_asignacion(
         planilla_service.sincronizar_registro_bisturi(resultado["sheets_payload"])
         
     return resultado
+
 
 # ── PUT /asignaciones/{id} ───────────────────────────────────────────────────
 @router.put(
@@ -119,6 +105,7 @@ def confirmar_agenda(
 ):
     return service.confirmar_agenda_masiva(data)
 
+
 @router.post("/preview-agenda")
 def preview_agenda(
     data: AgendaConfirmar,
@@ -126,6 +113,7 @@ def preview_agenda(
     _: CurrentUser = Depends(require_admin),
 ):
     return service.preview_agenda(data)
+
 
 @router.get("/sugerencias", summary="Obtener sugerencias de territorios")
 def sugerencias(
@@ -135,12 +123,10 @@ def sugerencias(
 ):
     return service.obtener_sugerencias(rango)
 
+
 @router.get("/historial", summary="Obtener historial de asignaciones recientes")
 def obtener_historial(
     limit: int = 20,
     service: AsignacionService = Depends(get_asignacion_service),
-    # _: CurrentUser = Depends(require_admin), # Descomenta si queres seguridad
 ):
-    # Asegurate de que el service tenga un método para listar asignaciones
-    # Si no lo tiene, podés usar directamente el repo aquí para probar
     return service.asignacion_repo.get_recientes(limit=limit)
