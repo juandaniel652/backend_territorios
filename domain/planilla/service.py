@@ -212,6 +212,7 @@ class PlanillaService:
                 rango_cond = gspread.utils.rowcol_to_a1(c_cond[0], c_cond[1])
                 rango_asig = gspread.utils.rowcol_to_a1(c_asig[0], c_asig[1])
                 rango_comp = gspread.utils.rowcol_to_a1(c_comp[0], c_comp[1])
+                print(f"🎯 [DESTINO REAL] Conductor: {rango_cond} | Asig: {rango_asig} | Comp: {rango_comp} | Texto a escribir: '{conductor_texto}'")
 
                 conductor_base = self.preparar_texto_conductor(getattr(asig, 'conductor', ''), getattr(asig, 'cantidad_abarcado', ''))
                 f_asig = self.formatear_fecha_ar(getattr(asig, 'fecha_asignado', None))
