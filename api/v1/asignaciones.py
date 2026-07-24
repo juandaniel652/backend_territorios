@@ -52,48 +52,19 @@ def get_asignacion_service(db: Session = Depends(get_db)) -> AsignacionService:
 
 
 # ── POST /asignaciones ───────────────────────────────────────────────────────
-@router.post(
-    "",
-    response_model=AsignacionCreatedOut,
-    status_code=201,
-    summary="Registrar nueva asignación de territorio",
-)
+@router.post("", summary="Crear una nueva asignación")
 def crear_asignacion(
     data: AsignacionCreate,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db), # <-- Inyectamos la sesión
-    service: AsignacionService = Depends(get_asignacion_service),
-    _: CurrentUser = Depends(require_admin),
+    asignacion_service: AsignacionService = Depends(get_asignacion_service),
+    planilla_service: PlanillaService = Depends(get_planilla_service)
 ):
-    # 1. El servicio realiza el guardado en DB
-    res = service.crear_asignacion(data)
+    resultado = asignacion_service.crear_asignacion(data)
     
-    # 2. Si el servicio generó los datos para Google Sheets
-    if "sheets_payload" in res:
-        # Inicializamos repositorios y servicios necesarios
-        territorio_repo = TerritorioRepository(db)
-        planilla_repo = PlanillaRepository(db)
-        territorio_service = TerritorioService(territorio_repo, planilla_repo)
+    # 🎯 Sincronización quirúrgica usando el payload ya calculado por el servicio:
+    if "sheets_payload" in resultado:
+        planilla_service.sincronizar_registro_bisturi(resultado["sheets_payload"])
         
-        # Inyectamos territorio_service en PlanillaService
-        planilla_service = PlanillaService(
-            planilla_repo=planilla_repo,
-            territorio_service=territorio_service
-        )
-        
-        # Extraemos el numero_territorio desde el payload (asumiendo que viene como dict o int)
-        numero_territorio = res["sheets_payload"]
-        if isinstance(numero_territorio, dict):
-            numero_territorio = numero_territorio.get("numero_territorio")
-
-        # Disparamos la tarea de fondo con el número de territorio
-        background_tasks.add_task(
-            planilla_service.sincronizar_territorio_completo_a_drive,
-            numero_territorio
-        )
-    
-    return res
-
+    return resultado
 
 # ── PUT /asignaciones/{id} ───────────────────────────────────────────────────
 @router.put(
