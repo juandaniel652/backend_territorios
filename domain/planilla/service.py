@@ -1,7 +1,10 @@
 import os
 import traceback
 from datetime import datetime, date
+import time
+from collections import defaultdict
 import gspread
+from gspread.exceptions import SpreadsheetNotFound, APIError
 
 from core.google_sheets import obtener_cliente_sheets
 from core.utils import obtener_anio_servicio
@@ -20,10 +23,6 @@ class PlanillaService:
 
     @staticmethod
     def generar_nombre_automatico(zona: int, ciclo: int, planilla_repo=None) -> str:
-        """
-        Genera el nombre oficial de la planilla de forma idéntica a territorio.
-        Busca primero en el mapeo histórico fijo y, si no está, calcula el nombre dinámico.
-        """
         nombres_fijos = {
             1: {
                 1: '1° Planilla, Casas 1-20; (2025)',
@@ -47,12 +46,10 @@ class PlanillaService:
             }
         }
 
-        # 1. Mapeo histórico
         nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
         if nombre_mapeado:
             return nombre_mapeado
 
-        # 2. Lógica dinámica
         anio_servicio = obtener_anio_servicio()
         proximo_numero = 1
 
@@ -107,109 +104,137 @@ class PlanillaService:
             return f"{conductor} ({cantidad_abarcado})"
         return conductor
 
+    @staticmethod
+    def abrir_o_buscar_planilla(client: gspread.Client, nombre_esperado: str, max_retries: int = 3):
+        """Abre una planilla por nombre con reintentos y fallback flexible."""
+        for intento in range(max_retries):
+            try:
+                return client.open(nombre_esperado)
+            except SpreadsheetNotFound:
+                break
+            except APIError as api_err:
+                if api_err.response.status_code in [500, 502, 503, 504, 429]:
+                    print(f"⚠️ [SHEETS RETRY] Error {api_err.response.status_code}. Reintentando ({intento + 1}/{max_retries})...")
+                    time.sleep(2 ** intento)
+                else:
+                    raise api_err
+
+        print(f"⚠️ [SHEETS ADVERTENCIA] No se encontró la planilla exacta: '{nombre_esperado}'. Buscando similares...")
+        try:
+            todas_las_planillas = client.openall()
+            nombre_normalizado = " ".join(nombre_esperado.strip().lower().split())
+            for sheet in todas_las_planillas:
+                sheet_normalizado = " ".join(sheet.title.strip().lower().split())
+                if sheet_normalizado == nombre_normalizado:
+                    print(f"💡 [SHEETS COINCIDENCIA] Usando '{sheet.title}'")
+                    return sheet
+
+            print(f"❌ [SHEETS NOMBRE INCORRECTO] Debes crear o renombrar en Drive a: '{nombre_esperado}'")
+            return None
+        except Exception as err:
+            print(f"❌ [SHEETS ERROR] Error buscando planillas: {str(err)}")
+            return None
+
+    def calcular_payload_celda(self, fila_logica: int, asig) -> tuple:
+        """
+        Función pura: Genera la lista de actualizaciones de valores y formatos
+        para una asignación dada sin realizar llamadas I/O. Facilita los Tests Unitarios.
+        """
+        # Calcular posición base en la planilla (ejemplo de mapeo a matriz)
+        fila_base = VALORES_FILAS[(fila_logica - 1) % len(VALORES_FILAS)]
+        salida_idx = (fila_logica - 1) // len(VALORES_FILAS)
+
+        celdas_cond = archivo.localizar_celda_conductor(fila_base, 2)
+        celdas_asig = archivo.localizar_celda_fecha_asignado(fila_base, 2)
+        celdas_comp = archivo.localizar_celda_fecha_completado(fila_base, 2)
+
+        c_cond = celdas_cond[salida_idx]
+        c_asig = celdas_asig[salida_idx]
+        c_comp = celdas_comp[salida_idx]
+
+        rango_cond = gspread.utils.rowcol_to_a1(c_cond[0], c_cond[1])
+        rango_asig = gspread.utils.rowcol_to_a1(c_asig[0], c_asig[1])
+        rango_comp = gspread.utils.rowcol_to_a1(c_comp[0], c_comp[1])
+
+        conductor_base = self.preparar_texto_conductor(asig.conductor, asig.cantidad_abarcado)
+        f_asig = self.formatear_fecha_ar(asig.fecha_asignado)
+        f_comp = self.formatear_fecha_ar(asig.fecha_completado)
+
+        if salida_idx == 4:
+            rango_fechas = f"{f_asig}\n{f_comp}" if f_comp else f_asig
+            conductor_texto = f"{conductor_base}\n{rango_fechas}"
+            f_asig, f_comp = "", ""
+            fuente_cond = 12
+        else:
+            conductor_texto = conductor_base
+            fuente_cond = self.calcular_tamanio_fuente_conductor(conductor_texto)
+
+        actualizaciones = [
+            {'range': rango_cond, 'values': [[conductor_texto]]},
+            {'range': rango_asig, 'values': [[f_asig]]},
+            {'range': rango_comp, 'values': [[f_comp]]}
+        ]
+
+        formatos = [
+            {
+                "range": rango_cond,
+                "format": {
+                    "textFormat": {"fontFamily": "Arial", "fontSize": fuente_cond},
+                    "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
+                }
+            },
+            {
+                "range": rango_asig,
+                "format": {
+                    "textFormat": {"fontFamily": "Arial", "fontSize": 32},
+                    "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
+                }
+            },
+            {
+                "range": rango_comp,
+                "format": {
+                    "textFormat": {"fontFamily": "Arial", "fontSize": 32},
+                    "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
+                }
+            }
+        ]
+
+        return actualizaciones, formatos
+
     def sincronizar_territorio_completo_a_drive(self, numero_territorio: int):
+        """Orquesta la sincronización en lote agrupada por planilla."""
         if not self.territorio_service:
             raise ValueError("Se requiere territorio_service para obtener el historial posicionado.")
 
         historial_out = self.territorio_service.obtener_historial_posicionado(numero_territorio)
-        
-        if not historial_out.historial_posicionado:
-            print(f"[SHEETS ADVERTENCIA] El territorio {numero_territorio} no tiene asignaciones para sincronizar.")
+
+        if not historial_out or not historial_out.historial_posicionado:
+            print(f"[SHEETS ADVERTENCIA] El territorio {numero_territorio} no tiene asignaciones.")
             return
 
         client = obtener_cliente_sheets()
         
-        # Cache para no abrir la misma planilla múltiples veces en el bucle
-        planillas_abiertas = {}
+        # Agrupar las operaciones por planilla para hacer BATCHING (1 request por archivo)
+        operaciones_por_planilla = defaultdict(lambda: {"updates": [], "formats": []})
 
         for asig in historial_out.historial_posicionado:
-            nombre_planilla = asig.nombre_planilla
-            fila_logica = asig.fila  # 1 a 5
-            salida_idx = fila_logica - 1
+            actualizaciones, formatos = self.calcular_payload_celda(asig.fila, asig)
+            operaciones_por_planilla[asig.nombre_planilla]["updates"].extend(actualizaciones)
+            operaciones_por_planilla[asig.nombre_planilla]["formats"].extend(formatos)
 
-            zona = self.detectar_zona_por_nombre(nombre_planilla)
-            inicio_territorio = 1 if zona == 1 else (21 if zona == 2 else 41)
-
-            if numero_territorio < inicio_territorio or numero_territorio >= inicio_territorio + len(VALORES_FILAS):
-                print(f"[SHEETS OMITIDO] El territorio {numero_territorio} está fuera del rango lógico de la zona {zona}")
-                continue
-
-            territorio_idx = numero_territorio - inicio_territorio
-            fila_base = VALORES_FILAS[territorio_idx]
-
-            # Reutilizamos la instancia si ya se abrió previamente
-            if nombre_planilla not in planillas_abiertas:
-                try:
-                    planillas_abiertas[nombre_planilla] = client.open(nombre_planilla)
-                except gspread.exceptions.SpreadsheetNotFound:
-                    print(f"⚠️ [SHEETS ADVERTENCIA] No se encontró '{nombre_planilla}'. Creando...")
-                    try:
-                        planillas_abiertas[nombre_planilla] = client.create(nombre_planilla)
-                    except Exception as create_err:
-                        print(f"❌ [SHEETS ERROR] No se pudo crear en Drive: {str(create_err)}")
-                        continue
-
-            spreadsheet = planillas_abiertas.get(nombre_planilla)
+        # Ejecutar peticiones masivas
+        for nombre_planilla, datos in operaciones_por_planilla.items():
+            spreadsheet = self.abrir_o_buscar_planilla(client, nombre_planilla)
             if not spreadsheet:
+                print(f"⏩ [SHEETS SALTADO] Omitiendo sincronización para '{nombre_planilla}' (no disponible).")
                 continue
 
-            sheet = spreadsheet.sheet1
-
-            celdas_cond = archivo.localizar_celda_conductor(fila_base, 2)
-            celdas_asig = archivo.localizar_celda_fecha_asignado(fila_base, 2)
-            celdas_comp = archivo.localizar_celda_fecha_completado(fila_base, 2)
-
-            c_cond = celdas_cond[salida_idx]
-            c_asig = celdas_asig[salida_idx]
-            c_comp = celdas_comp[salida_idx]
-
-            rango_cond = gspread.utils.rowcol_to_a1(c_cond[0], c_cond[1])
-            rango_asig = gspread.utils.rowcol_to_a1(c_asig[0], c_asig[1])
-            rango_comp = gspread.utils.rowcol_to_a1(c_comp[0], c_comp[1])
-
-            conductor_base = self.preparar_texto_conductor(asig.conductor, asig.cantidad_abarcado)
-            f_asig = self.formatear_fecha_ar(asig.fecha_asignado)
-            f_comp = self.formatear_fecha_ar(asig.fecha_completado)
-
-            if salida_idx == 4:
-                rango_fechas = f"{f_asig}\n{f_comp}" if f_comp else f_asig
-                conductor_texto = f"{conductor_base}\n{rango_fechas}"
-                f_asig, f_comp = "", ""
-                fuente_cond = 12
-            else:
-                conductor_texto = conductor_base
-                fuente_cond = self.calcular_tamanio_fuente_conductor(conductor_texto)
-
-            lista_actualizaciones = [
-                {'range': rango_cond, 'values': [[conductor_texto]]},
-                {'range': rango_asig, 'values': [[f_asig]]},
-                {'range': rango_comp, 'values': [[f_comp]]}
-            ]
-
-            lista_formatos = [
-                {
-                    "range": rango_cond,
-                    "format": {
-                        "textFormat": {"fontFamily": "Arial", "fontSize": fuente_cond},
-                        "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
-                    }
-                },
-                {
-                    "range": rango_asig,
-                    "format": {
-                        "textFormat": {"fontFamily": "Arial", "fontSize": 32},
-                        "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
-                    }
-                },
-                {
-                    "range": rango_comp,
-                    "format": {
-                        "textFormat": {"fontFamily": "Arial", "fontSize": 32},
-                        "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
-                    }
-                }
-            ]
-
-            sheet.batch_update(lista_actualizaciones, value_input_option='USER_ENTERED')
-            sheet.batch_format(lista_formatos)
-            print(f"[SHEETS SUCCESS] Territorio {numero_territorio} fila {fila_logica} sincronizado en '{nombre_planilla}'")
+            try:
+                sheet = spreadsheet.sheet1
+                if datos["updates"]:
+                    sheet.batch_update(datos["updates"], value_input_option='USER_ENTERED')
+                if datos["formats"]:
+                    sheet.batch_format(datos["formats"])
+                print(f"✅ [SHEETS SUCCESS] Planilla '{nombre_planilla}' sincronizada en lote.")
+            except Exception as e:
+                print(f"❌ [SHEETS ERROR] Fallo al actualizar '{nombre_planilla}': {str(e)}")
