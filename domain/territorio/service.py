@@ -1,29 +1,246 @@
-import os
-import traceback
-from datetime import datetime, date
-import gspread
+"""
+Capa de servicio del dominio Territorio.
 
-from core.google_sheets import obtener_cliente_sheets
-from core.utils import obtener_anio_servicio
-import utils.recorrer_filas as archivo
+Responsabilidades:
+  - Orquestar llamadas al repositorio
+  - Aplicar reglas de negocio (severidad, rangos válidos, cache)
+  - Lanzar excepciones de dominio (HTTPException vive en el router, no aquí*)
+  - Devolver schemas listos para serializar
+"""
 
-# Filas físicas fijas por territorio
-VALORES_FILAS = [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110]
+from datetime import date, timedelta
+from time import time
+from typing import List
+from fastapi import HTTPException
+
+from domain.territorio.repository import TerritorioRepositoryProtocol
+from domain.territorio.schema import (
+    TerritorioConAsignacionesOut,
+    SugerenciaTerritorio,
+    SugerenciasOut,
+    TerritorioPlanillaInfo,
+    HistorialPosicionadoOut,
+    AsignacionPosicionada,
+    SemanaDisponible,
+    ReporteTerritorioSemanal
+)
+
+from core.utils import extraer_info_planilla, obtener_anio_servicio
+from domain.planilla.repository import PlanillaRepository
+
+# ─────────────────────────────────────────────
+# Configuración de rangos válidos y cache
+# ─────────────────────────────────────────────
+
+RANGOS_VALIDOS: dict[str, tuple[int, int]] = {
+    "1-20":  (1,  20),
+    "21-40": (21, 40),
+    "41-60": (41, 60),
+}
+
+_CACHE: dict[str, tuple[SugerenciasOut, float]] = {}
+CACHE_TTL = 300  # segundos
+
+MESES_ES = {
+    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
+    7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+}
 
 
-class PlanillaService:
+# ─────────────────────────────────────────────
+# Reglas de negocio puras
+# ─────────────────────────────────────────────
 
-    def __init__(self, planilla_repo=None, territorio_service=None) -> None:
+def _calcular_severidad(dias: int | None) -> str:
+    if dias is None:
+        return "nunca"
+    if dias >= 30:
+        return "critico"
+    if dias >= 15:
+        return "alto"
+    return "normal"
+
+
+def _enriquecer_sugerencia(
+    sugerencia: SugerenciaTerritorio, hoy: date
+) -> SugerenciaTerritorio:
+    dias = (hoy - sugerencia.ultima_fecha).days if sugerencia.ultima_fecha else None
+    return sugerencia.model_copy(update={
+        "dias_atraso": dias,
+        "severidad": _calcular_severidad(dias),
+    })
+
+
+# ─────────────────────────────────────────────
+# Servicio
+# ─────────────────────────────────────────────
+
+class TerritorioService:
+
+    def __init__(self, repo: TerritorioRepositoryProtocol, planilla_repo: PlanillaRepository = None) -> None:
+        self.repo = repo
         self.planilla_repo = planilla_repo
-        self.territorio_service = territorio_service
-        self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    # ── Historial ────────────────────────────
+
+    def obtener_historial(self, numero: int) -> TerritorioConAsignacionesOut:
+        asignaciones = self.repo.obtener_asignaciones_historial(numero)
+
+        if not asignaciones:
+            return TerritorioConAsignacionesOut(
+                territorio=numero,
+                asignaciones=[],
+                mensaje="No hay asignaciones para este territorio",
+            )
+
+        asignaciones.reverse()
+
+        return TerritorioConAsignacionesOut(
+            territorio=numero,
+            asignaciones=asignaciones,
+        )
+
+    # ── Sugerencias ──────────────────────────
+
+    def obtener_sugerencias(self, rango: str, limit: int) -> SugerenciasOut:
+        if rango not in RANGOS_VALIDOS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Rango inválido. Opciones: {list(RANGOS_VALIDOS.keys())}",
+            )
+
+        cache_key = f"{rango}:{limit}"
+        now = time()
+        if cache_key in _CACHE:
+            data, timestamp = _CACHE[cache_key]
+            if now - timestamp < CACHE_TTL:
+                return data.model_copy(update={"cache": True})
+
+        desde, hasta = RANGOS_VALIDOS[rango]
+        sugerencias_db = self.repo.obtener_sugerencias_antiguedad(desde=desde, hasta=hasta, limit=limit)
+
+        sugerencias = [
+            SugerenciaTerritorio(
+                numero=s["numero"],
+                ultima_fecha=date.fromisoformat(s["ultima_visita"]) if (s["ultima_visita"] and s["ultima_visita"] != "Nunca") else None,
+                dias_atraso=s["dias_atraso"],
+                severidad=s["severidad"]
+            ) for s in sugerencias_db
+        ]
+
+        resultado = SugerenciasOut(
+            rango=rango,
+            total=len(sugerencias),
+            sugerencias=sugerencias,
+            cache=False,
+        )
+
+        _CACHE[cache_key] = (resultado, now)
+        return resultado
+    
+    def _get_offset(self, dia_nombre: str) -> int:
+        dias = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado"]
+        return dias.index(dia_nombre)
+
+    def _valida_restricciones(self, t, dia_nombre: str, turno: str) -> bool:
+        if dia_nombre == "sabado":
+            return True
+        
+        if turno == "AM" and not t.permite_am:
+            return False
+        if turno == "PM" and not t.permite_pm:
+            return False
+        
+        if t.zona == 3:
+            return False
+            
+        return True
 
     @staticmethod
-    def generar_nombre_automatico(zona: int, ciclo: int, planilla_repo=None) -> str:
-        """
-        Genera el nombre oficial de la planilla de forma idéntica a territorio.
-        Busca primero en el mapeo histórico fijo y, si no está, calcula el nombre dinámico.
-        """
+    def calcular_score(territorio, fecha_planificada: date) -> float:
+        if territorio.ultima_fecha_completado:
+            dias_desde = (fecha_planificada - territorio.ultima_fecha_completado).days
+        else:
+            dias_desde = 999
+        
+        bono_zona = 15 if territorio.zona == 1 else 0
+        return (dias_desde * 1.2) + bono_zona
+    
+    def generar_propuesta_dia(self, fecha_objetivo: date):
+        es_sabado = fecha_objetivo.weekday() == 5
+        raw_sugerencias = self.repo.obtener_sugerencias_por_dia(es_sabado=es_sabado)
+        
+        propuesta = []
+        for s in raw_sugerencias:
+            num = s["numero"]
+            
+            if 42 <= num <= 60: 
+                zona_tag = "Zona 3 (Sábado)"
+            elif num in [28, 29, 30, 31, 39, 40, 41]: 
+                zona_tag = "Zona 2 (Crítica)"
+            else: 
+                zona_tag = "Zona Estándar"
+
+            propuesta.append({
+                "territorio_id": s["id"],
+                "numero": num,
+                "ultima_fecha": s["ultima_fecha"],
+                "zona_descripcion": zona_tag,
+                "turno_recomendado": "SÁBADO AM" if es_sabado else "SEMANA / TARDE"
+            })
+            
+        return propuesta
+    
+    # ── Planillas ──────────────────────────
+
+    def obtener_estado_planilla(self, numero: int) -> TerritorioPlanillaInfo:
+        info_db = self.repo.obtener_estado_detallado(numero)
+        hoy = date.today()
+        anio_actual = obtener_anio_servicio(hoy)
+
+        if not info_db or info_db.get("total_salidas", 0) == 0:
+            if info_db:
+                zona = info_db.get("zona", 1)
+            else:
+                zona = self.repo.obtener_zona_de_territorio(numero) or 1
+            
+            nombre_ini = self.obtener_nombre_dinamico(zona, 1)
+            
+            return TerritorioPlanillaInfo(
+                numero=numero, total_salidas=0,
+                ciclo_actual=1, fila_actual=0, 
+                proximo_ciclo=1, proxima_fila=1,
+                nombre_planilla=nombre_ini,
+                anio=anio_actual, mensaje_estado="Sin salidas"
+            )
+
+        total = info_db["total_salidas"]
+        actual_ciclo = ((total - 1) // 5) + 1
+        actual_fila = ((total - 1) % 5) + 1
+        zona = info_db.get("zona") or 1
+
+        if actual_fila == 5:
+            sig_ciclo = actual_ciclo + 1
+            sig_fila = 1
+        else:
+            sig_ciclo = actual_ciclo
+            sig_fila = actual_fila + 1
+
+        nombre_planilla = self.obtener_nombre_dinamico(zona, sig_ciclo)
+
+        return TerritorioPlanillaInfo(
+            numero=numero,
+            total_salidas=total,
+            ciclo_actual=actual_ciclo,
+            fila_actual=actual_fila,
+            proximo_ciclo=sig_ciclo,
+            proxima_fila=sig_fila,
+            nombre_planilla=nombre_planilla,
+            anio=info_db.get("anio") or anio_actual,
+            mensaje_estado=f"Ciclo {actual_ciclo} - Fila {actual_fila}/5"
+        )
+        
+    def obtener_nombre_dinamico(self, zona: int, ciclo: int):
         nombres_fijos = {
             1: {
                 1: '1° Planilla, Casas 1-20; (2025)',
@@ -47,164 +264,105 @@ class PlanillaService:
             }
         }
 
-        # 1. Mapeo histórico
         nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
         if nombre_mapeado:
             return nombre_mapeado
 
-        # 2. Lógica dinámica
         anio_servicio = obtener_anio_servicio()
-        proximo_numero = 1
-
-        if planilla_repo:
-            try:
-                ultima_planilla_db = planilla_repo.obtener_ultima_planilla_creada(zona, ciclo)
-                if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
-                    from utils.recorrer_filas import extraer_info_planilla
-                    num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
-                    
-                    if num_anterior is not None and anio_anterior is not None:
-                        if anio_anterior == anio_servicio:
-                            proximo_numero = num_anterior + 1
-            except Exception:
-                proximo_numero = ciclo
+        ultima_planilla_db = self.planilla_repo.obtener_ultima_planilla_creada(zona, ciclo)
+        
+        if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
+            num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
+            
+            if num_anterior is None or anio_anterior is None:
+                proximo_numero = 1
+            else:
+                if anio_anterior == anio_servicio:
+                    proximo_numero = num_anterior + 1
+                else:
+                    proximo_numero = 1
         else:
-            proximo_numero = ciclo
+            proximo_numero = 1
 
         rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
         rango_txt = rangos.get(zona, f"Zona {zona}")
 
         return f"{proximo_numero}° Planilla, Casas {rango_txt}; ({anio_servicio})"
+    
+    def obtener_historial_posicionado(self, numero: int) -> HistorialPosicionadoOut:
+        zona = self.repo.obtener_zona_de_territorio(numero) or 1
+        asignaciones_crudas = self.repo.obtener_asignaciones_historial(numero)
 
-    def detectar_zona_por_nombre(self, nombre_planilla: str) -> int:
-        nombre_lower = nombre_planilla.lower()
-        if "1-20" in nombre_lower:
-            return 1
-        elif "21-40" in nombre_lower:
-            return 2
-        elif "41-60" in nombre_lower:
-            return 3
-        raise ValueError(f"No se pudo determinar la zona para la planilla: {nombre_planilla}")
+        if not asignaciones_crudas:
+            return HistorialPosicionadoOut(
+                territorio=numero,
+                historial_posicionado=[],
+                mensaje="No hay asignaciones para este territorio",
+            )
 
-    def formatear_fecha_ar(self, f) -> str:
-        if not f: return ""
-        if isinstance(f, (date, datetime)): return f.strftime("%d/%m/%Y")
-        f_str = str(f).strip()
-        try: return datetime.strptime(f_str, "%Y-%m-%d").strftime("%d/%m/%Y")
-        except ValueError:
-            try: return datetime.strptime(f_str, "%d/%m/%Y").strftime("%d/%m/%Y")
-            except ValueError: return f_str
+        asignaciones_ordenadas = sorted(
+            asignaciones_crudas,
+            key=lambda x: (x.fecha_asignado if x.fecha_asignado else date.min, x.id)
+        )
 
-    def calcular_tamanio_fuente_conductor(self, texto: str) -> int:
-        largo = len(texto)
-        if largo <= 14: return 36
-        if largo >= 38: return 10
-        tamanio_calculado = 36 - ((largo - 14) * (36 - 10) / (38 - 14))
-        return int(round(tamanio_calculado))
+        historial_posicionado = []
 
-    def preparar_texto_conductor(self, conductor: str, cantidad_abarcado: str) -> str:
-        if cantidad_abarcado and str(cantidad_abarcado).strip().lower() != "completo":
-            return f"{conductor} ({cantidad_abarcado})"
-        return conductor
+        for i, asig in enumerate(asignaciones_ordenadas, start=1):
+            ciclo_asig = ((i - 1) // 5) + 1
+            fila_asig = ((i - 1) % 5) + 1
+            nombre_planilla = self.obtener_nombre_dinamico(zona, ciclo_asig)
 
-    def sincronizar_territorio_completo_a_drive(self, numero_territorio: int):
-        """
-        Sincroniza todas las asignaciones de un territorio en Drive respetando 
-        estrictamente el historial posicionado.
-        """
-        if not self.territorio_service:
-            raise ValueError("Se requiere territorio_service para obtener el historial posicionado.")
+            historial_posicionado.append(
+                AsignacionPosicionada(
+                    id=asig.id,
+                    conductor=asig.conductor,
+                    fecha_asignado=asig.fecha_asignado,
+                    fecha_completado=asig.fecha_completado,
+                    cantidad_abarcado=asig.cantidad_abarcado,
+                    ciclo=ciclo_asig,
+                    fila=fila_asig,
+                    nombre_planilla=nombre_planilla
+                )
+            )
 
-        historial_out = self.territorio_service.obtener_historial_posicionado(numero_territorio)
-        
-        if not historial_out.historial_posicionado:
-            print(f"[SHEETS ADVERTENCIA] El territorio {numero_territorio} no tiene asignaciones para sincronizar.")
-            return
+        return HistorialPosicionadoOut(
+            territorio=numero,
+            historial_posicionado=historial_posicionado
+        )
 
-        client = obtener_cliente_sheets()
+    def obtener_semanas_disponibles(self) -> List[SemanaDisponible]:
+        fechas = self.repo.obtener_todas_las_fechas_asignadas()
+        if not fechas:
+            return []
 
-        for asig in historial_out.historial_posicionado:
-            nombre_planilla = asig.nombre_planilla
-            fila_logica = asig.fila  # 1 a 5
-            salida_idx = fila_logica - 1
+        semanas_registradas = set()
+        resultado: List[SemanaDisponible] = []
 
-            zona = self.detectar_zona_por_nombre(nombre_planilla)
-            inicio_territorio = 1 if zona == 1 else (21 if zona == 2 else 41)
+        for f in fechas:
+            lunes = f - timedelta(days=f.weekday())
+            domingo = lunes + timedelta(days=6)
 
-            if numero_territorio < inicio_territorio or numero_territorio >= inicio_territorio + len(VALORES_FILAS):
-                print(f"[SHEETS OMITIDO] El territorio {numero_territorio} está fuera del rango lógico de la zona {zona}")
-                continue
+            rango = (lunes, domingo)
+            if rango not in semanas_registradas:
+                semanas_registradas.add(rango)
 
-            territorio_idx = numero_territorio - inicio_territorio
-            fila_base = VALORES_FILAS[territorio_idx]
+                mes_lunes = MESES_ES[lunes.month]
+                mes_domingo = MESES_ES[domingo.month]
 
-            try:
-                spreadsheet = client.open(nombre_planilla)
-            except gspread.exceptions.SpreadsheetNotFound:
-                print(f"⚠️ [SHEETS ADVERTENCIA] No se encontró '{nombre_planilla}'. Creando...")
-                try:
-                    spreadsheet = client.create(nombre_planilla)
-                except Exception as create_err:
-                    print(f"❌ [SHEETS ERROR] No se pudo crear en Drive: {str(create_err)}")
-                    continue
+                if lunes.month == domingo.month:
+                    label = f"Del {lunes.day} al {domingo.day} de {mes_lunes} {lunes.year}"
+                else:
+                    label = f"Del {lunes.day} de {mes_lunes} al {domingo.day} de {mes_domingo} {lunes.year}"
 
-            sheet = spreadsheet.sheet1
+                resultado.append(SemanaDisponible(
+                    label=label,
+                    fecha_inicio=lunes,
+                    fecha_fin=domingo
+                ))
 
-            celdas_cond = archivo.localizar_celda_conductor(fila_base, 2)
-            celdas_asig = archivo.localizar_celda_fecha_asignado(fila_base, 2)
-            celdas_comp = archivo.localizar_celda_fecha_completado(fila_base, 2)
+        resultado.sort(key=lambda x: x.fecha_inicio, reverse=True)
+        return resultado
 
-            c_cond = celdas_cond[salida_idx]
-            c_asig = celdas_asig[salida_idx]
-            c_comp = celdas_comp[salida_idx]
-
-            rango_cond = gspread.utils.rowcol_to_a1(c_cond[0], c_cond[1])
-            rango_asig = gspread.utils.rowcol_to_a1(c_asig[0], c_asig[1])
-            rango_comp = gspread.utils.rowcol_to_a1(c_comp[0], c_comp[1])
-
-            conductor_base = self.preparar_texto_conductor(asig.conductor, asig.cantidad_abarcado)
-            f_asig = self.formatear_fecha_ar(asig.fecha_asignado)
-            f_comp = self.formatear_fecha_ar(asig.fecha_completado)
-
-            if salida_idx == 4:
-                rango_fechas = f"{f_asig}\n{f_comp}" if f_comp else f_asig
-                conductor_texto = f"{conductor_base}\n{rango_fechas}"
-                f_asig, f_comp = "", ""
-                fuente_cond = 12
-            else:
-                conductor_texto = conductor_base
-                fuente_cond = self.calcular_tamanio_fuente_conductor(conductor_texto)
-
-            lista_actualizaciones = [
-                {'range': rango_cond, 'values': [[conductor_texto]]},
-                {'range': rango_asig, 'values': [[f_asig]]},
-                {'range': rango_comp, 'values': [[f_comp]]}
-            ]
-
-            lista_formatos = [
-                {
-                    "range": rango_cond,
-                    "format": {
-                        "textFormat": {"fontFamily": "Arial", "fontSize": fuente_cond},
-                        "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
-                    }
-                },
-                {
-                    "range": rango_asig,
-                    "format": {
-                        "textFormat": {"fontFamily": "Arial", "fontSize": 32},
-                        "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
-                    }
-                },
-                {
-                    "range": rango_comp,
-                    "format": {
-                        "textFormat": {"fontFamily": "Arial", "fontSize": 32},
-                        "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
-                    }
-                }
-            ]
-
-            sheet.batch_update(lista_actualizaciones, value_input_option='USER_ENTERED')
-            sheet.batch_format(lista_formatos)
-            print(f"[SHEETS SUCCESS] Territorio {numero_territorio} fila {fila_logica} sincronizado en '{nombre_planilla}'")
+    def obtener_reporte_semanal(self, fecha_inicio: date, fecha_fin: date) -> List[ReporteTerritorioSemanal]:
+        datos = self.repo.obtener_reporte_por_rango(fecha_inicio, fecha_fin)
+        return [ReporteTerritorioSemanal(**item) for item in datos]

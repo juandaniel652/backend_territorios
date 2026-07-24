@@ -7,10 +7,10 @@ Solo responsabilidades HTTP:
   - Devolver la respuesta tipada
 """
 
-from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy.orm import Session
 from datetime import date
 from typing import List
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
 
 from core.database import get_db
 from api.deps import get_asignacion_service
@@ -100,11 +100,6 @@ def obtener_propuesta_agenda(
     fecha: date = Query(..., description="Fecha para la que se planea la salida"),
     service: TerritorioService = Depends(get_territorio_service),
 ):
-    """
-    Lógica de negocio aplicada:
-    - Si es Sábado: Filtra Zona 3 y Zona 2 crítica.
-    - Si es otro día: Filtra el resto.
-    """
     return service.generar_propuesta_dia(fecha)
 
 @router.get("/{numero}/planilla-status", response_model=TerritorioPlanillaInfo)
@@ -123,10 +118,6 @@ def obtener_historial_posicionado(
     numero: int,
     service: TerritorioService = Depends(get_territorio_service),
 ):
-    """
-    Retorna todo el historial del territorio ordenado por fecha, asignándole
-    a cada salida su Ciclo, Fila y Nombre de Planilla correspondiente.
-    """
     return service.obtener_historial_posicionado(numero)
 
 # ── Endpoints de Reporte Semanal ─────────────────────────────────────────────
@@ -139,10 +130,6 @@ def obtener_historial_posicionado(
 def obtener_semanas_con_actividad(
     service: TerritorioService = Depends(get_territorio_service),
 ):
-    """
-    Retorna los rangos de fecha de Lunes a Domingo de las semanas
-    que tienen asignaciones registradas, listas para poblar un Dropdown.
-    """
     return service.obtener_semanas_disponibles()
 
 
@@ -156,10 +143,6 @@ def obtener_reporte_semanal(
     fecha_fin: date = Query(..., description="Domingo de la semana (YYYY-MM-DD)"),
     service: TerritorioService = Depends(get_territorio_service),
 ):
-    """
-    Retorna la lista de territorios asignados o completados en el rango de fechas
-    indicando el conductor, la zona y la cantidad abarcada.
-    """
     return service.obtener_reporte_semanal(fecha_inicio, fecha_fin)
 
 
