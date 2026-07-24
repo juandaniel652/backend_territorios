@@ -135,27 +135,33 @@ class PlanillaService:
             print(f"❌ [SHEETS ERROR] Error buscando planillas: {str(err)}")
             return None
 
-    def calcular_payload_celda(self, fila_logica: int, asig) -> tuple:
+    def calcular_payload_celda(self, asig, fila_calculada: int) -> tuple:
         """
-        Función pura: Genera la lista de actualizaciones de valores y formatos
-        para una asignación dada sin realizar llamadas I/O. Facilita los Tests Unitarios.
+        Pasa directamente la fila (ej: 20) a las funciones de ubicación
+        tal como funcionaba originalmente.
         """
-        # Calcular posición base en la planilla (ejemplo de mapeo a matriz)
-        fila_base = VALORES_FILAS[(fila_logica - 1) % len(VALORES_FILAS)]
-        salida_idx = (fila_logica - 1) // len(VALORES_FILAS)
+        # asig.ciclo (1, 2, 3, 4, 5) elige la celda_1 .. celda_5
+        salida_idx = max(0, min(asig.ciclo - 1, 4))
 
-        celdas_cond = archivo.localizar_celda_conductor(fila_base, 2)
-        celdas_asig = archivo.localizar_celda_fecha_asignado(fila_base, 2)
-        celdas_comp = archivo.localizar_celda_fecha_completado(fila_base, 2)
+        # Columna B fija de origen (columna = 2) y la fila que ya calculó la lógica previa
+        COLUMNA_BASE_B = 2
 
+        # Invocación idéntica a la original
+        celdas_cond = archivo.localizar_celda_conductor(fila_calculada, COLUMNA_BASE_B)
+        celdas_asig = archivo.localizar_celda_fecha_asignado(fila_calculada, COLUMNA_BASE_B)
+        celdas_comp = archivo.localizar_celda_fecha_completado(fila_calculada, COLUMNA_BASE_B)
+
+        # Extraemos las coordenadas de la tupla para este ciclo
         c_cond = celdas_cond[salida_idx]
         c_asig = celdas_asig[salida_idx]
         c_comp = celdas_comp[salida_idx]
 
+        # Convertimos a formato A1 de Google Sheets
         rango_cond = gspread.utils.rowcol_to_a1(c_cond[0], c_cond[1])
         rango_asig = gspread.utils.rowcol_to_a1(c_asig[0], c_asig[1])
         rango_comp = gspread.utils.rowcol_to_a1(c_comp[0], c_comp[1])
 
+        # Formateo de los valores
         conductor_base = self.preparar_texto_conductor(asig.conductor, asig.cantidad_abarcado)
         f_asig = self.formatear_fecha_ar(asig.fecha_asignado)
         f_comp = self.formatear_fecha_ar(asig.fecha_completado)
