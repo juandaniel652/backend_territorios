@@ -135,38 +135,42 @@ class PlanillaService:
             print(f"❌ [SHEETS ERROR] Error buscando planillas: {str(err)}")
             return None
 
-    def calcular_payload_celda(self, asig, fila_calculada: int) -> tuple:
+    def calcular_payload_celda(self, asig) -> tuple:
         """
-        Pasa directamente la fila (ej: 20) a las funciones de ubicación
-        tal como funcionaba originalmente.
+        Calcula los rangos A1 y los formatos de celda para sincronizar con Google Drive.
+        1. Reinicia las filas físicas (15 a 110) cada 20 territorios (1-20, 21-40, etc.).
+        2. Usa las funciones del módulo 'archivo' para localizar celdas por ciclo (1 a 5).
         """
-        # asig.ciclo (1, 2, 3, 4, 5) elige la celda_1 .. celda_5
-        salida_idx = max(0, min(asig.ciclo - 1, 4))
+        # 1. Obtener fila física base en Google Sheets (ej: Territorio 21 -> Fila 15)
+        numero_territorio = asig.fila
+        indice_fila = (numero_territorio - 1) % len(VALORES_FILAS)
+        fila_base_sheets = VALORES_FILAS[indice_fila]
 
-        # Columna B fija de origen (columna = 2) y la fila que ya calculó la lógica previa
+        # 2. Invocación a tus funciones originales de archivo (Columna Base B = 2)
         COLUMNA_BASE_B = 2
 
-        # Invocación idéntica a la original
-        celdas_cond = archivo.localizar_celda_conductor(fila_calculada, COLUMNA_BASE_B)
-        celdas_asig = archivo.localizar_celda_fecha_asignado(fila_calculada, COLUMNA_BASE_B)
-        celdas_comp = archivo.localizar_celda_fecha_completado(fila_calculada, COLUMNA_BASE_B)
+        celdas_cond = archivo.localizar_celda_conductor(fila_base_sheets, COLUMNA_BASE_B)
+        celdas_asig = archivo.localizar_celda_fecha_asignado(fila_base_sheets, COLUMNA_BASE_B)
+        celdas_comp = archivo.localizar_celda_fecha_completado(fila_base_sheets, COLUMNA_BASE_B)
 
-        # Extraemos las coordenadas de la tupla para este ciclo
+        # 3. Selección de la columna horizontal según el ciclo (1 a 5 -> índice 0 a 4)
+        salida_idx = max(0, min(asig.ciclo - 1, 4))
+
         c_cond = celdas_cond[salida_idx]
         c_asig = celdas_asig[salida_idx]
         c_comp = celdas_comp[salida_idx]
 
-        # Convertimos a formato A1 de Google Sheets
+        # 4. Conversión de coordenadas (fila, columna) a notación A1 (ej: "D15", "D17")
         rango_cond = gspread.utils.rowcol_to_a1(c_cond[0], c_cond[1])
         rango_asig = gspread.utils.rowcol_to_a1(c_asig[0], c_asig[1])
         rango_comp = gspread.utils.rowcol_to_a1(c_comp[0], c_comp[1])
 
-        # Formateo de los valores
+        # 5. Formateo de valores de texto
         conductor_base = self.preparar_texto_conductor(asig.conductor, asig.cantidad_abarcado)
         f_asig = self.formatear_fecha_ar(asig.fecha_asignado)
         f_comp = self.formatear_fecha_ar(asig.fecha_completado)
 
-        if salida_idx == 4:
+        if salida_idx == 4:  # Salida 5 (columna lateral)
             rango_fechas = f"{f_asig}\n{f_comp}" if f_comp else f_asig
             conductor_texto = f"{conductor_base}\n{rango_fechas}"
             f_asig, f_comp = "", ""
@@ -186,21 +190,24 @@ class PlanillaService:
                 "range": rango_cond,
                 "format": {
                     "textFormat": {"fontFamily": "Arial", "fontSize": fuente_cond},
-                    "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
+                    "horizontalAlignment": "CENTER",
+                    "verticalAlignment": "MIDDLE"
                 }
             },
             {
                 "range": rango_asig,
                 "format": {
                     "textFormat": {"fontFamily": "Arial", "fontSize": 32},
-                    "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
+                    "horizontalAlignment": "CENTER",
+                    "verticalAlignment": "MIDDLE"
                 }
             },
             {
                 "range": rango_comp,
                 "format": {
                     "textFormat": {"fontFamily": "Arial", "fontSize": 32},
-                    "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
+                    "horizontalAlignment": "CENTER",
+                    "verticalAlignment": "MIDDLE"
                 }
             }
         ]
@@ -224,7 +231,7 @@ class PlanillaService:
         operaciones_por_planilla = defaultdict(lambda: {"updates": [], "formats": []})
 
         for asig in historial_out.historial_posicionado:
-            actualizaciones, formatos = self.calcular_payload_celda(asig.fila, asig)
+            actualizaciones, formatos = self.calcular_payload_celda(asig)
             operaciones_por_planilla[asig.nombre_planilla]["updates"].extend(actualizaciones)
             operaciones_por_planilla[asig.nombre_planilla]["formats"].extend(formatos)
 
