@@ -32,7 +32,7 @@ from api.deps import get_asignacion_service
 from domain.asignacion.service import AsignacionService
 from domain.asignacion.schema import AgendaConfirmar
 from domain.planilla.repository import PlanillaRepository # Nuevo import para el repo de planillas
-
+from domain.planilla.service import PlanillaService
 
 
 router = APIRouter(prefix="/territorios", tags=["territorios"])
@@ -48,6 +48,13 @@ def get_territorio_service(db: Session = Depends(get_db)) -> TerritorioService:
     
     # Pasale el planilla_repo para que pueda calcular los nombres 2026
     return TerritorioService(repo, planilla_repo=planilla_repo)
+
+def get_planilla_service(
+    db: Session = Depends(get_db),
+    territorio_service: TerritorioService = Depends(get_territorio_service)
+) -> PlanillaService:
+    planilla_repo = PlanillaRepository(db)
+    return PlanillaService(planilla_repo=planilla_repo, territorio_service=territorio_service)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -156,3 +163,17 @@ def obtener_reporte_semanal(
     indicando el conductor, la zona y la cantidad abarcada.
     """
     return service.obtener_reporte_semanal(fecha_inicio, fecha_fin)
+
+
+# ── Endpoint Sincronización Drive ─────────────────────────────────────────────
+
+@router.post("/sincronizar-drive/{numero_territorio}")
+def sincronizar_drive(
+    numero_territorio: int,
+    planilla_service: PlanillaService = Depends(get_planilla_service)
+):
+    planilla_service.sincronizar_territorio_completo_a_drive(numero_territorio)
+    return {
+        "status": "ok", 
+        "mensaje": f"Territorio {numero_territorio} sincronizado correctamente en Drive."
+    }

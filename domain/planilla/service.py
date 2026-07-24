@@ -17,8 +17,9 @@ VALORES_FILAS = [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90,
 
 class PlanillaService:
 
-    def __init__(self, planilla_repo=None) -> None:
+    def __init__(self, planilla_repo=None, territorio_service=None) -> None:
         self.planilla_repo = planilla_repo
+        self.territorio_service = territorio_service
         self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     @staticmethod
@@ -235,3 +236,33 @@ class PlanillaService:
         except Exception as e:
             print("[SHEETS ERROR] Falló la sincronización con Google Sheets:")
             traceback.print_exc()
+            
+            
+    def sincronizar_territorio_completo_a_drive(self, numero_territorio: int):
+        """
+        Sincroniza todas las asignaciones de un territorio en Drive respetando 
+        estrictamente el historial posicionado.
+        """
+        if not self.territorio_service:
+            raise ValueError("Se requiere territorio_service para obtener el historial posicionado.")
+
+        # 1. Obtener la verdad absoluta trazada por el historial posicionado
+        historial_out = self.territorio_service.obtener_historial_posicionado(numero_territorio)
+        
+        if not historial_out.historial_posicionado:
+            print(f"[SHEETS ADVERTENCIA] El territorio {numero_territorio} no tiene asignaciones para sincronizar.")
+            return
+
+        # 2. Iterar sobre las asignaciones ya posicionadas y sincronizar en Sheets
+        for asig in historial_out.historial_posicionado:
+            datos_registro = {
+                "nombre_planilla": asig.nombre_planilla,
+                "numero_territorio": numero_territorio,
+                "fila": asig.fila,  # 1 a 5
+                "conductor": asig.conductor,
+                "cantidad_abarcado": asig.cantidad_abarcado,
+                "fecha_asignado": asig.fecha_asignado,
+                "fecha_completado": asig.fecha_completado,
+            }
+            # Llama a tu función quirúrgica con coordenadas exactas
+            self.sincronizar_registro_bisturi(datos_registro)
