@@ -1,52 +1,50 @@
 """
-api/v1/territorios.py
-
 Router del dominio Territorio.
 Solo responsabilidades HTTP:
   - Parsear parámetros de ruta/query
   - Construir dependencias (repo, service)
   - Llamar al servicio
   - Devolver la respuesta tipada
-
-Cero SQL, cero lógica de negocio aquí.
-
-Reemplaza:
-  - El endpoint GET /territorios/{numero} que vivía en app.py con SQL inline
-  - El router completo de sugerir_territorios.py con SQL inline y cache acoplado
 """
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
-from domain.territorio.model import Territorio
-from domain.asignacion.model import Asignacion
-from domain.conductor.model import Conductor
-from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOut, AgendaItemIn, PropuestaDiaOut, TerritorioPlanillaInfo, HistorialPosicionadoOut, AsignacionPosicionada, SemanaDisponible, ReporteTerritorioSemanal
-from core.database import get_db
-from domain.territorio.repository import TerritorioRepository
-from domain.territorio.service import TerritorioService
-
 from datetime import date
 from typing import List
 
+from core.database import get_db
 from api.deps import get_asignacion_service
+
+# Dominio Territorio
+from domain.territorio.repository import TerritorioRepository
+from domain.territorio.service import TerritorioService
+from domain.territorio.schema import (
+    TerritorioConAsignacionesOut, 
+    SugerenciasOut, 
+    PropuestaDiaOut, 
+    TerritorioPlanillaInfo, 
+    HistorialPosicionadoOut, 
+    SemanaDisponible, 
+    ReporteTerritorioSemanal
+)
+
+# Dominio Asignación
 from domain.asignacion.service import AsignacionService
 from domain.asignacion.schema import AgendaConfirmar
-from domain.planilla.repository import PlanillaRepository # Nuevo import para el repo de planillas
+
+# Dominio Planilla
+from domain.planilla.repository import PlanillaRepository
 from domain.planilla.service import PlanillaService
 
 
 router = APIRouter(prefix="/territorios", tags=["territorios"])
 
 
-# ── Factory de servicio ──────────────────────────────────────────────────────
-# Construye el grafo de dependencias para este router.
-# Al estar separado del endpoint, puede ser sobreescrito en tests.
+# ── Factories de servicios ───────────────────────────────────────────────────
 
 def get_territorio_service(db: Session = Depends(get_db)) -> TerritorioService:
     repo = TerritorioRepository(db)
-    planilla_repo = PlanillaRepository(db) # <--- AGREGÁ ESTO
-    
-    # Pasale el planilla_repo para que pueda calcular los nombres 2026
+    planilla_repo = PlanillaRepository(db)
     return TerritorioService(repo, planilla_repo=planilla_repo)
 
 def get_planilla_service(
@@ -95,7 +93,7 @@ def confirmar_agenda(
 
 @router.get(
     "/propuesta-agenda",
-    response_model=List[PropuestaDiaOut],  # <--- Usamos el nuevo esquema
+    response_model=List[PropuestaDiaOut],
     summary="Genera una propuesta basada en el día (Sábado vs Semana)",
 )
 def obtener_propuesta_agenda(

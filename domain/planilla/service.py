@@ -1,15 +1,17 @@
-"""
-backend/domain/planilla/service.py
-"""
 import os
 import traceback
 from datetime import datetime, date
+from typing import Optional  # <-- Agregado Optional
 import gspread
 
 from core.google_sheets import obtener_cliente_sheets
 from core.utils import obtener_anio_servicio
-# Importamos tus localizadores nativos
-import utils.recorrer_filas as archivo
+
+# Importación relativa a la raíz del proyecto para localizar celdas
+try:
+    import utils.recorrer_filas as archivo
+except ImportError:
+    from core.utils import recorrer_filas as archivo  # Fallback si recorrer_filas está en core.utils
 
 # Tus filas físicas fijas por territorio
 VALORES_FILAS = [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110]
@@ -23,66 +25,43 @@ class PlanillaService:
         self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     @staticmethod
-    def generar_nombre_automatico(zona: int, ciclo: int, planilla_repo=None) -> str:
-        """
-        Genera el nombre oficial de la planilla de forma idéntica a territorio.
-        Busca primero en el mapeo histórico fijo y, si no está, calcula el nombre dinámico.
-        """
+    def obtener_anio_servicio(fecha: Optional[date] = None) -> int:
+        f = fecha or date.today()
+        # El año de servicio teocrático comienza el 1 de Septiembre
+        return f.year + 1 if f.month >= 9 else f.year
+
+    @staticmethod
+    def generar_nombre_automatico(numero_territorio: int, ciclo: int, fecha: Optional[date] = None) -> str:
+        anio = PlanillaService.obtener_anio_servicio(fecha)
+
         nombres_fijos = {
             1: {
-                1: '1° Planilla, Casas 1-20; (2025)',
+                1: '1° Planilla, Casas 1-20; (2024)',
                 2: '2° Planilla, Casas 1-20; (2025)',
                 3: '3° Planilla, Casas 1-20; (2025)',
-                4: '1° Planilla, Casas 1-20; (2026)'
+                4: '4° Planilla, Casas 1-20; (2026)',
             },
             2: {
-                1: '2° Planilla, Casas 21-40; (2024)',
-                2: '3° Planilla, Casas 21-40; (2024)',
-                3: '4° Planilla, Casas 21-40; (2024)',
-                4: '1° Planilla, Casas 21-40; (2025)',
+                1: '1° Planilla, Casas 21-40; (2024)',
+                2: '2° Planilla, Casas 21-40; (2025)',
+                3: '3° Planilla, Casas 21-40; (2025)',
+                4: '4° Planilla, Casas 21-40; (2025)',
                 5: '1° Planilla, Casas 21-40; (2026)',
-                6: '2° Planilla, Casas 21-40; (2026)'
+                6: '2° Planilla, Casas 21-40; (2026)',
             },
             3: {
                 1: '1° Planilla, Casas 41-60; (2024)',
-                2: '2° Planilla, Casas 41-60; (2024)',
-                3: '1⁰ Planilla, Casas 41-60; (2025)',
-                4: '1ª Planilla, Casas 41-60; (2026)'
+                2: '2° Planilla, Casas 41-60; (2025)',
             }
         }
 
-        # 1. ¡PRIMERO REVISAR EL DICCIONARIO HISTÓRICO!
-        nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
-        if nombre_mapeado:
-            return nombre_mapeado
+        # 1. Búsqueda fija para históricos
+        if numero_territorio in nombres_fijos and ciclo in nombres_fijos[numero_territorio]:
+            return nombres_fijos[numero_territorio][ciclo]
 
-        # 2. Lógica dinámica para ciclos nuevos que se creen solos en la DB
-        anio_servicio = obtener_anio_servicio()
-        proximo_numero = 1
-
-        if planilla_repo:
-            try:
-                # Traemos la última planilla real creada en la DB para esta zona
-                ultima_planilla_db = planilla_repo.obtener_ultima_planilla_creada(zona, ciclo)
-                if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
-                    from utils.recorrer_filas import extraer_info_planilla
-                    num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
-                    
-                    if num_anterior is not None and anio_anterior is not None:
-                        if anio_anterior == anio_servicio:
-                            proximo_numero = num_anterior + 1
-            except Exception:
-                # Si algo falla leyendo el repositorio por estructura, usamos el ciclo actual como fallback
-                proximo_numero = ciclo
-
-        else:
-            # Si no pasaron el repositorio, usamos de forma segura el ciclo como número correlativo
-            proximo_numero = ciclo
-
-        rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
-        rango_txt = rangos.get(zona, f"Zona {zona}")
-
-        return f"{proximo_numero}° Planilla, Casas {rango_txt}; ({anio_servicio})"
+        # 2. Lógica dinámica para nuevos ciclos (ej. ciclo 7 en territorio 2)
+        rango_casas = f"Casas {(numero_territorio - 1) * 20 + 1}-{numero_territorio * 20}"
+        return f"{ciclo}° Planilla, {rango_casas}; ({anio})"
     
     def detectar_zona_por_nombre(self, nombre_planilla: str) -> int:
         nombre_lower = nombre_planilla.lower()
@@ -95,18 +74,25 @@ class PlanillaService:
         raise ValueError(f"No se pudo determinar la zona para la planilla: {nombre_planilla}")
 
     def formatear_fecha_ar(self, f) -> str:
-        if not f: return ""
-        if isinstance(f, (date, datetime)): return f.strftime("%d/%m/%Y")
+        if not f: 
+            return ""
+        if isinstance(f, (date, datetime)): 
+            return f.strftime("%d/%m/%Y")
         f_str = str(f).strip()
-        try: return datetime.strptime(f_str, "%Y-%m-%d").strftime("%d/%m/%Y")
+        try: 
+            return datetime.strptime(f_str, "%Y-%m-%d").strftime("%d/%m/%Y")
         except ValueError:
-            try: return datetime.strptime(f_str, "%d/%m/%Y").strftime("%d/%m/%Y")
-            except ValueError: return f_str
+            try: 
+                return datetime.strptime(f_str, "%d/%m/%Y").strftime("%d/%m/%Y")
+            except ValueError: 
+                return f_str
 
     def calcular_tamanio_fuente_conductor(self, texto: str) -> int:
         largo = len(texto)
-        if largo <= 14: return 36
-        if largo >= 38: return 10
+        if largo <= 14: 
+            return 36
+        if largo >= 38: 
+            return 10
         tamanio_calculado = 36 - ((largo - 14) * (36 - 10) / (38 - 14))
         return int(round(tamanio_calculado))
 
@@ -120,7 +106,6 @@ class PlanillaService:
         Inyecta una única asignación en tiempo real en las coordenadas físicas 
         exactas de Google Sheets calculadas por 'recorrer_fila_planilla'.
         """
-        
         print("="*60)
         print(f"DEBUG BISTURÍ:")
         print(f" -> Planilla a abrir en Drive: {datos_registro.get('nombre_planilla')}")
@@ -141,9 +126,6 @@ class PlanillaService:
             zona = self.detectar_zona_por_nombre(nombre_planilla)
             inicio_territorio = 1 if zona == 1 else (21 if zona == 2 else 41)
             
-            # Calcular en qué índice de nuestra lista VALORES_FILAS cae este territorio
-            # Ej: Territorio 1 en Zona 1 -> índice 0 -> Fila base 15
-            # Ej: Territorio 26 en Zona 2 -> índice 5 -> Fila base 40
             if numero_territorio < inicio_territorio or numero_territorio >= inicio_territorio + len(VALORES_FILAS):
                 print(f"[SHEETS OMITIDO] El territorio {numero_territorio} está fuera del rango lógico de la zona {zona}")
                 return
@@ -151,22 +133,13 @@ class PlanillaService:
             territorio_idx = numero_territorio - inicio_territorio
             fila_base = VALORES_FILAS[territorio_idx]
 
-            #2. Editar o inserar en hoja
-            #RECORDA... TENES QUE AJUSTAR EL FECHA DE ASINGADO DEL FRON A DOMINGO, ESTA EN LUNES
+            # 2. Editar o insertar en hoja
             try:
                 spreadsheet = client.open(nombre_planilla)
             except gspread.exceptions.SpreadsheetNotFound:
                 print(f"⚠️ [SHEETS ADVERTENCIA] No se encontró la planilla '{nombre_planilla}'. Intentando crearla...")
                 try:
-                    # Crea una planilla nueva en la raíz de tu Drive con ese nombre exacto
                     spreadsheet = client.create(nombre_planilla)
-                    
-                    # 💡 NOTA: Las planillas nuevas vienen vacías. 
-                    # Si querés que hereden el diseño de tus planillas anteriores, 
-                    # podrías buscar una planilla modelo/base y clonarla en su lugar:
-                    # plantilla_base = client.open("Casas 1-20; (2026)") # Tu modelo base
-                    # spreadsheet = client.copy(plantilla_base.id, title=nombre_planilla)
-                    
                     print(f"✨ [SHEETS CREADO] Se generó automáticamente el archivo físico en Drive: '{nombre_planilla}'")
                 except Exception as create_err:
                     print(f"❌ [SHEETS ERROR] No se pudo crear la planilla en Drive: {str(create_err)}")
@@ -174,7 +147,7 @@ class PlanillaService:
             
             sheet = spreadsheet.sheet1
 
-            # 3. Localizar coordenadas físicas exactas del script original
+            # 3. Localizar coordenadas físicas exactas
             celdas_cond = archivo.localizar_celda_conductor(fila_base, 2)
             celdas_asig = archivo.localizar_celda_fecha_asignado(fila_base, 2)
             celdas_comp = archivo.localizar_celda_fecha_completado(fila_base, 2)
@@ -235,8 +208,7 @@ class PlanillaService:
 
         except Exception as e:
             print("[SHEETS ERROR] Falló la sincronización con Google Sheets:")
-            traceback.print_exc()
-            
+            traceback.print_exc()     
             
     def sincronizar_territorio_completo_a_drive(self, numero_territorio: int):
         """
@@ -264,5 +236,5 @@ class PlanillaService:
                 "fecha_asignado": asig.fecha_asignado,
                 "fecha_completado": asig.fecha_completado,
             }
-            # Llama a tu función quirúrgica con coordenadas exactas
+            # Llama a la función quirúrgica con coordenadas exactas
             self.sincronizar_registro_bisturi(datos_registro)
