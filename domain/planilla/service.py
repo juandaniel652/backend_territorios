@@ -1,15 +1,15 @@
+"""
+backend/domain/planilla/service.py
+"""
 import os
 import traceback
 from datetime import datetime, date
-import time
 import gspread
-from gspread.exceptions import SpreadsheetNotFound, APIError
 
 from core.google_sheets import obtener_cliente_sheets
 from core.utils import obtener_anio_servicio
 import utils.recorrer_filas as archivo
 
-# Filas físicas fijas por territorio (20 filas base en Google Sheets)
 VALORES_FILAS = [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110]
 
 
@@ -19,58 +19,6 @@ class PlanillaService:
         self.planilla_repo = planilla_repo
         self.territorio_service = territorio_service
         self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-    @staticmethod
-    def generar_nombre_automatico(zona: int, ciclo: int, planilla_repo=None) -> str:
-        nombres_fijos = {
-            1: {
-                1: '1° Planilla, Casas 1-20; (2025)',
-                2: '2° Planilla, Casas 1-20; (2025)',
-                3: '3° Planilla, Casas 1-20; (2025)',
-                4: '1° Planilla, Casas 1-20; (2026)'
-            },
-            2: {
-                1: '2° Planilla, Casas 21-40; (2024)',
-                2: '3° Planilla, Casas 21-40; (2024)',
-                3: '4° Planilla, Casas 21-40; (2024)',
-                4: '1° Planilla, Casas 21-40; (2025)',
-                5: '1° Planilla, Casas 21-40; (2026)',
-                6: '2° Planilla, Casas 21-40; (2026)'
-            },
-            3: {
-                1: '1° Planilla, Casas 41-60; (2024)',
-                2: '2° Planilla, Casas 41-60; (2024)',
-                3: '1⁰ Planilla, Casas 41-60; (2025)',
-                4: '1ª Planilla, Casas 41-60; (2026)'
-            }
-        }
-
-        nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
-        if nombre_mapeado:
-            return nombre_mapeado
-
-        anio_servicio = obtener_anio_servicio()
-        proximo_numero = 1
-
-        if planilla_repo:
-            try:
-                ultima_planilla_db = planilla_repo.obtener_ultima_planilla_creada(zona, ciclo)
-                if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
-                    from utils.recorrer_filas import extraer_info_planilla
-                    num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
-                    
-                    if num_anterior is not None and anio_anterior is not None:
-                        if anio_anterior == anio_servicio:
-                            proximo_numero = num_anterior + 1
-            except Exception:
-                proximo_numero = ciclo
-        else:
-            proximo_numero = ciclo
-
-        rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
-        rango_txt = rangos.get(zona, f"Zona {zona}")
-
-        return f"{proximo_numero}° Planilla, Casas {rango_txt}; ({anio_servicio})"
 
     def detectar_zona_por_nombre(self, nombre_planilla: str) -> int:
         nombre_lower = nombre_planilla.lower()
@@ -103,166 +51,113 @@ class PlanillaService:
             return f"{conductor} ({cantidad_abarcado})"
         return conductor
 
-    @staticmethod
-    def abrir_o_buscar_planilla(client: gspread.Client, nombre_esperado: str, max_retries: int = 3):
-        for intento in range(max_retries):
-            try:
-                return client.open(nombre_esperado)
-            except SpreadsheetNotFound:
-                break
-            except APIError as api_err:
-                if api_err.response.status_code in [500, 502, 503, 504, 429]:
-                    print(f"⚠️ [SHEETS RETRY] Google devolvió {api_err.response.status_code}. Reintentando ({intento + 1}/{max_retries})...")
-                    time.sleep(2 ** intento)
-                else:
-                    raise api_err
-
-        print(f"⚠️ [SHEETS ADVERTENCIA] No se encontró la planilla exacta: '{nombre_esperado}'. Buscando archivos similares en Drive...")
-        try:
-            todas_las_planillas = client.openall()
-            nombre_normalizado = " ".join(nombre_esperado.strip().lower().split())
-            for sheet in todas_las_planillas:
-                sheet_normalizado = " ".join(sheet.title.strip().lower().split())
-                if sheet_normalizado == nombre_normalizado:
-                    print(f"💡 [SHEETS COINCIDENCIA] Se usará '{sheet.title}' (difieren en mayúsculas/espacios). Corrección sugerida en Drive.")
-                    return sheet
-
-            print(f"❌ [SHEETS NOMBRE INCORRECTO] Debes crear o renombrar en Drive la planilla a: '{nombre_esperado}'")
-            return None
-
-        except Exception as err:
-            print(f"❌ [SHEETS ERROR] Error buscando planillas en Drive: {str(err)}")
-            return None       
-
-    def sincronizar_territorio_completo_a_drive(self, numero_territorio: int):
-        print(f"🚀 [SHEETS START] Iniciando sincronización para Territorio N°: {numero_territorio}")
-        
-        if not self.territorio_service:
-            raise ValueError("Se requiere territorio_service para obtener el historial posicionado.")
-
-        try:
-            historial_out = self.territorio_service.obtener_historial_posicionado(numero_territorio)
-        except Exception as e:
-            print(f"❌ [SHEETS ERROR] Falló 'obtener_historial_posicionado': {str(e)}")
-            traceback.print_exc()
-            return
-
-        if not historial_out or not getattr(historial_out, 'historial_posicionado', None):
-            print(f"⚠️ [SHEETS ADVERTENCIA] El territorio {numero_territorio} no devolvió historial posicionado o está vacío.")
-            return
-
-        posicionados = historial_out.historial_posicionado
-        print(f"📊 [SHEETS INFO] Se encontraron {len(posicionados)} asignaciones para procesar.")
+    def sincronizar_registro_bisturi(self, datos_registro: dict):
+        """
+        Ubica y escribe quirúrgicamente un solo registro directo en Google Sheets.
+        """
+        print("=" * 60)
+        print("🎯 DEBUG BISTURÍ (Escribiendo registro en Sheets):")
+        print(f" -> Planilla: {datos_registro.get('nombre_planilla')}")
+        print(f" -> Territorio: {datos_registro.get('numero_territorio')}")
+        print(f" -> Fila lógica (1-5): {datos_registro.get('fila')}")
+        print(f" -> Conductor: {datos_registro.get('conductor')}")
+        print("=" * 60)
 
         try:
             client = obtener_cliente_sheets()
-        except Exception as e:
-            print(f"❌ [SHEETS ERROR] Fallo en la autenticación/cliente de Google Sheets: {str(e)}")
-            traceback.print_exc()
-            return
 
-        planillas_abiertas = {}
+            nombre_planilla = datos_registro["nombre_planilla"]
+            numero_territorio = datos_registro["numero_territorio"]
+            fila_logica = datos_registro["fila"]  # 1 a 5
+            salida_idx = fila_logica - 1
 
-        for i, asig in enumerate(posicionados, start=1):
-            nombre_planilla = getattr(asig, 'nombre_planilla', None)
-            fila_logica = getattr(asig, 'fila', None)
-            ciclo_asig = getattr(asig, 'ciclo', 1)
+            # 1. Determinar zona e inicio
+            zona = self.detectar_zona_por_nombre(nombre_planilla)
+            inicio_territorio = 1 if zona == 1 else (21 if zona == 2 else 41)
 
-            print(f"🔍 [PROCESANDO {i}/{len(posicionados)}] Planilla: '{nombre_planilla}' | Fila Lógica: {fila_logica} | Ciclo: {ciclo_asig}")
+            if numero_territorio < inicio_territorio or numero_territorio >= inicio_territorio + len(VALORES_FILAS):
+                print(f"[SHEETS OMITIDO] Territorio {numero_territorio} fuera de zona {zona}")
+                return
 
-            if not nombre_planilla:
-                print(f"⚠️ [SHEETS SALTADO] La asignación en índice {i} no tiene 'nombre_planilla'.")
-                continue
+            # 2. Fila base directa
+            territorio_idx = numero_territorio - inicio_territorio
+            fila_base = VALORES_FILAS[territorio_idx]
 
-            # Cache de planillas abiertas
-            if nombre_planilla not in planillas_abiertas:
-                spreadsheet = self.abrir_o_buscar_planilla(client, nombre_planilla)
-                planillas_abiertas[nombre_planilla] = spreadsheet
-
-            spreadsheet = planillas_abiertas.get(nombre_planilla)
-            if not spreadsheet:
-                print(f"⏩ [SHEETS SALTADO] Omitiendo fila {fila_logica} porque la planilla '{nombre_planilla}' no se pudo abrir.")
-                continue
-
+            # 3. Abrir o crear planilla de un tiro
             try:
-                sheet = spreadsheet.sheet1
+                spreadsheet = client.open(nombre_planilla)
+            except gspread.exceptions.SpreadsheetNotFound:
+                print(f"⚠️ [SHEETS] No se encontró '{nombre_planilla}'. Creándola...")
+                try:
+                    spreadsheet = client.create(nombre_planilla)
+                except Exception as create_err:
+                    print(f"❌ [SHEETS ERROR] No se pudo crear: {str(create_err)}")
+                    return
 
-                # -------------------------------------------------------------
-                # CÁLCULO DE FILA FÍSICA Y SALIDA
-                # -------------------------------------------------------------
-                if not fila_logica or fila_logica < 1:
-                    print(f"⚠️ [SHEETS ADVERTENCIA] 'fila_logica' inválida ({fila_logica}). Forzando a 1.")
-                    fila_logica = 1
+            sheet = spreadsheet.sheet1
 
-                indice_fila = (fila_logica - 1) % len(VALORES_FILAS)
-                fila_base = VALORES_FILAS[indice_fila]
-                salida_idx = max(0, min(ciclo_asig - 1, 4))
+            # 4. Localización exacta en coordenadas
+            celdas_cond = archivo.localizar_celda_conductor(fila_base, 2)
+            celdas_asig = archivo.localizar_celda_fecha_asignado(fila_base, 2)
+            celdas_comp = archivo.localizar_celda_fecha_completado(fila_base, 2)
 
-                print(f"📍 [MAPEO] Territorio Fila {fila_logica} -> Fila Sheets {fila_base} | Columna Salida Index {salida_idx}")
-                # -------------------------------------------------------------
+            c_cond = celdas_cond[salida_idx]
+            c_asig = celdas_asig[salida_idx]
+            c_comp = celdas_comp[salida_idx]
 
-                celdas_cond = archivo.localizar_celda_conductor(fila_base, 2)
-                celdas_asig = archivo.localizar_celda_fecha_asignado(fila_base, 2)
-                celdas_comp = archivo.localizar_celda_fecha_completado(fila_base, 2)
+            rango_cond = gspread.utils.rowcol_to_a1(c_cond[0], c_cond[1])
+            rango_asig = gspread.utils.rowcol_to_a1(c_asig[0], c_asig[1])
+            rango_comp = gspread.utils.rowcol_to_a1(c_comp[0], c_comp[1])
 
-                c_cond = celdas_cond[salida_idx]
-                c_asig = celdas_asig[salida_idx]
-                c_comp = celdas_comp[salida_idx]
+            # 5. Formato de datos
+            conductor_base = self.preparar_texto_conductor(
+                datos_registro.get("conductor", ""), 
+                datos_registro.get("cantidad_abarcado", "")
+            )
+            f_asig = self.formatear_fecha_ar(datos_registro.get("fecha_asignado"))
+            f_comp = self.formatear_fecha_ar(datos_registro.get("fecha_completado"))
 
-                rango_cond = gspread.utils.rowcol_to_a1(c_cond[0], c_cond[1])
-                rango_asig = gspread.utils.rowcol_to_a1(c_asig[0], c_asig[1])
-                rango_comp = gspread.utils.rowcol_to_a1(c_comp[0], c_comp[1])
-                print(f"🎯 [DESTINO REAL] Conductor: {rango_cond} | Asig: {rango_asig} | Comp: {rango_comp} | Texto a escribir: '{conductor_texto}'")
+            if salida_idx == 4:  # Caso especial fila 5
+                rango_fechas = f"{f_asig}\n{f_comp}" if f_comp else f_asig
+                conductor_texto = f"{conductor_base}\n{rango_fechas}" if conductor_base else ""
+                f_asig, f_comp = "", ""
+                fuente_cond = 12
+            else:
+                conductor_texto = conductor_base
+                fuente_cond = self.calcular_tamanio_fuente_conductor(conductor_texto) if conductor_texto else 12
 
-                conductor_base = self.preparar_texto_conductor(getattr(asig, 'conductor', ''), getattr(asig, 'cantidad_abarcado', ''))
-                f_asig = self.formatear_fecha_ar(getattr(asig, 'fecha_asignado', None))
-                f_comp = self.formatear_fecha_ar(getattr(asig, 'fecha_completado', None))
+            # 6. Escritura directa
+            lista_actualizaciones = [
+                {'range': rango_cond, 'values': [[conductor_texto]]},
+                {'range': rango_asig, 'values': [[f_asig]]},
+                {'range': rango_comp, 'values': [[f_comp]]}
+            ]
 
-                if salida_idx == 4:
-                    rango_fechas = f"{f_asig}\n{f_comp}" if f_comp else f_asig
-                    conductor_texto = f"{conductor_base}\n{rango_fechas}"
-                    f_asig, f_comp = "", ""
-                    fuente_cond = 12
-                else:
-                    conductor_texto = conductor_base
-                    fuente_cond = self.calcular_tamanio_fuente_conductor(conductor_texto)
-
-                lista_actualizaciones = [
-                    {'range': rango_cond, 'values': [[conductor_texto]]},
-                    {'range': rango_asig, 'values': [[f_asig]]},
-                    {'range': rango_comp, 'values': [[f_comp]]}
-                ]
-
-                lista_formatos = [
-                    {
-                        "range": rango_cond,
-                        "format": {
-                            "textFormat": {"fontFamily": "Arial", "fontSize": fuente_cond},
-                            "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
-                        }
-                    },
-                    {
-                        "range": rango_asig,
-                        "format": {
-                            "textFormat": {"fontFamily": "Arial", "fontSize": 32},
-                            "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
-                        }
-                    },
-                    {
-                        "range": rango_comp,
-                        "format": {
-                            "textFormat": {"fontFamily": "Arial", "fontSize": 32},
-                            "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
-                        }
+            lista_formatos = [
+                {
+                    "range": rango_cond,
+                    "format": {
+                        "textFormat": {"fontFamily": "Arial", "fontSize": fuente_cond},
+                        "horizontalAlignment": "CENTER", 
+                        "verticalAlignment": "MIDDLE"
                     }
-                ]
+                }
+            ]
+            for r_fecha in [rango_asig, rango_comp]:
+                lista_formatos.append({
+                    "range": r_fecha,
+                    "format": {
+                        "textFormat": {"fontFamily": "Arial", "fontSize": 32},
+                        "horizontalAlignment": "CENTER", 
+                        "verticalAlignment": "MIDDLE"
+                    }
+                })
 
-                sheet.batch_update(lista_actualizaciones, value_input_option='USER_ENTERED')
-                sheet.batch_format(lista_formatos)
-                print(f"✅ [SHEETS SUCCESS] Territorio {numero_territorio} (fila {fila_logica} -> Sheets {fila_base}) escrito en '{nombre_planilla}' ({rango_cond})")
+            sheet.batch_update(lista_actualizaciones, value_input_option='USER_ENTERED')
+            sheet.batch_format(lista_formatos)
 
-            except Exception as e:
-                print(f"❌ [SHEETS ERROR] Fallo al escribir fila {fila_logica} en '{nombre_planilla}': {str(e)}")
-                traceback.print_exc()
+            print(f"🎯 [SHEETS SUCCESS] Ubicado Territorio {numero_territorio} en '{nombre_planilla}'")
 
-        print(f"🏁 [SHEETS FIN] Sincronización finalizada para Territorio N°: {numero_territorio}")
+        except Exception as e:
+            print("[SHEETS ERROR] Falló al sincronizar registro:")
+            traceback.print_exc()

@@ -1,15 +1,11 @@
 """
 Router del dominio Territorio.
-Solo responsabilidades HTTP:
-  - Parsear parámetros de ruta/query
-  - Construir dependencias (repo, service)
-  - Llamar al servicio
-  - Devolver la respuesta tipada
 """
 
 from datetime import date
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.database import get_db
@@ -38,6 +34,18 @@ from domain.planilla.service import PlanillaService
 
 
 router = APIRouter(prefix="/territorios", tags=["territorios"])
+
+
+# ── Schemas de Petición ──────────────────────────────────────────────────────
+
+class RegistroBisturiIn(BaseModel):
+    nombre_planilla: str
+    numero_territorio: int
+    fila: int  # 1 a 5
+    conductor: str
+    fecha_asignado: Optional[date] = None
+    fecha_completado: Optional[date] = None
+    cantidad_abarcado: Optional[str] = "completo"
 
 
 # ── Factories de servicios ───────────────────────────────────────────────────
@@ -85,10 +93,6 @@ def confirmar_agenda(
     data: AgendaConfirmar,
     service: AsignacionService = Depends(get_asignacion_service)
 ):
-    """
-    Toma la lista de territorios, conductores y turnos 
-    y los persiste en las tablas 'asignaciones' y 'salidas'.
-    """
     return service.confirmar_agenda_masiva(data)
 
 @router.get(
@@ -132,7 +136,6 @@ def obtener_semanas_con_actividad(
 ):
     return service.obtener_semanas_disponibles()
 
-
 @router.get(
     "/reportes/semanal",
     response_model=List[ReporteTerritorioSemanal],
@@ -146,15 +149,15 @@ def obtener_reporte_semanal(
     return service.obtener_reporte_semanal(fecha_inicio, fecha_fin)
 
 
-# ── Endpoint Sincronización Drive ─────────────────────────────────────────────
+# ── Endpoint Sincronización Bisturí (Directo a Google Sheets) ─────────────────
 
-@router.post("/sincronizar-drive/{numero_territorio}")
-def sincronizar_drive(
-    numero_territorio: int,
+@router.post("/sincronizar-bisturi", summary="Escribe un registro específico directo en Google Sheets")
+def sincronizar_registro_bisturi(
+    data: RegistroBisturiIn,
     planilla_service: PlanillaService = Depends(get_planilla_service)
 ):
-    planilla_service.sincronizar_territorio_completo_a_drive(numero_territorio)
+    planilla_service.sincronizar_registro_bisturi(data.model_dump())
     return {
         "status": "ok", 
-        "mensaje": f"Territorio {numero_territorio} sincronizado correctamente en Drive."
+        "mensaje": f"Registro del territorio {data.numero_territorio} sincronizado quirúrgicamente en Sheets."
     }
