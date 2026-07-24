@@ -135,48 +135,70 @@ class PlanillaService:
             return None       
 
     def sincronizar_territorio_completo_a_drive(self, numero_territorio: int):
+        print(f"🚀 [SHEETS START] Iniciando sincronización para Territorio N°: {numero_territorio}")
+        
         if not self.territorio_service:
             raise ValueError("Se requiere territorio_service para obtener el historial posicionado.")
 
-        historial_out = self.territorio_service.obtener_historial_posicionado(numero_territorio)
-
-        if not historial_out or not historial_out.historial_posicionado:
-            print(f"[SHEETS ADVERTENCIA] El territorio {numero_territorio} no tiene asignaciones.")
+        try:
+            historial_out = self.territorio_service.obtener_historial_posicionado(numero_territorio)
+        except Exception as e:
+            print(f"❌ [SHEETS ERROR] Falló 'obtener_historial_posicionado': {str(e)}")
+            traceback.print_exc()
             return
 
-        client = obtener_cliente_sheets()
+        if not historial_out or not getattr(historial_out, 'historial_posicionado', None):
+            print(f"⚠️ [SHEETS ADVERTENCIA] El territorio {numero_territorio} no devolvió historial posicionado o está vacío.")
+            return
+
+        posicionados = historial_out.historial_posicionado
+        print(f"📊 [SHEETS INFO] Se encontraron {len(posicionados)} asignaciones para procesar.")
+
+        try:
+            client = obtener_cliente_sheets()
+        except Exception as e:
+            print(f"❌ [SHEETS ERROR] Fallo en la autenticación/cliente de Google Sheets: {str(e)}")
+            traceback.print_exc()
+            return
+
         planillas_abiertas = {}
 
-        for asig in historial_out.historial_posicionado:
-            nombre_planilla = asig.nombre_planilla
-            fila_logica = asig.fila
+        for i, asig in enumerate(posicionados, start=1):
+            nombre_planilla = getattr(asig, 'nombre_planilla', None)
+            fila_logica = getattr(asig, 'fila', None)
+            ciclo_asig = getattr(asig, 'ciclo', 1)
 
-            # Guardar en caché la planilla abierta
+            print(f"🔍 [PROCESANDO {i}/{len(posicionados)}] Planilla: '{nombre_planilla}' | Fila Lógica: {fila_logica} | Ciclo: {ciclo_asig}")
+
+            if not nombre_planilla:
+                print(f"⚠️ [SHEETS SALTADO] La asignación en índice {i} no tiene 'nombre_planilla'.")
+                continue
+
+            # Cache de planillas abiertas
             if nombre_planilla not in planillas_abiertas:
                 spreadsheet = self.abrir_o_buscar_planilla(client, nombre_planilla)
-                if spreadsheet:
-                    planillas_abiertas[nombre_planilla] = spreadsheet
-                else:
-                    planillas_abiertas[nombre_planilla] = None
-                    continue
+                planillas_abiertas[nombre_planilla] = spreadsheet
 
             spreadsheet = planillas_abiertas.get(nombre_planilla)
             if not spreadsheet:
-                print(f"⏩ [SHEETS SALTADO] Omitiendo fila {fila_logica} porque la planilla '{nombre_planilla}' no está accesible.")
+                print(f"⏩ [SHEETS SALTADO] Omitiendo fila {fila_logica} porque la planilla '{nombre_planilla}' no se pudo abrir.")
                 continue
 
-            try: 
+            try:
                 sheet = spreadsheet.sheet1
 
                 # -------------------------------------------------------------
-                # CALCULO DE FILA FISICA Y CICLO DE SALIDA
+                # CÁLCULO DE FILA FÍSICA Y SALIDA
                 # -------------------------------------------------------------
-                # Mapea 1..20, 21..40, 41..60 a los índices 0..19 de VALORES_FILAS
-                indice_fila = (asig.fila - 1) % len(VALORES_FILAS)
-                fila_base = VALORES_FILAS[indice_fila]
+                if not fila_logica or fila_logica < 1:
+                    print(f"⚠️ [SHEETS ADVERTENCIA] 'fila_logica' inválida ({fila_logica}). Forzando a 1.")
+                    fila_logica = 1
 
-                # Mapea ciclo (1..5) a índice (0..4)
-                salida_idx = max(0, min(asig.ciclo - 1, 4))
+                indice_fila = (fila_logica - 1) % len(VALORES_FILAS)
+                fila_base = VALORES_FILAS[indice_fila]
+                salida_idx = max(0, min(ciclo_asig - 1, 4))
+
+                print(f"📍 [MAPEO] Territorio Fila {fila_logica} -> Fila Sheets {fila_base} | Columna Salida Index {salida_idx}")
                 # -------------------------------------------------------------
 
                 celdas_cond = archivo.localizar_celda_conductor(fila_base, 2)
@@ -191,9 +213,9 @@ class PlanillaService:
                 rango_asig = gspread.utils.rowcol_to_a1(c_asig[0], c_asig[1])
                 rango_comp = gspread.utils.rowcol_to_a1(c_comp[0], c_comp[1])
 
-                conductor_base = self.preparar_texto_conductor(asig.conductor, asig.cantidad_abarcado)
-                f_asig = self.formatear_fecha_ar(asig.fecha_asignado)
-                f_comp = self.formatear_fecha_ar(asig.fecha_completado)
+                conductor_base = self.preparar_texto_conductor(getattr(asig, 'conductor', ''), getattr(asig, 'cantidad_abarcado', ''))
+                f_asig = self.formatear_fecha_ar(getattr(asig, 'fecha_asignado', None))
+                f_comp = self.formatear_fecha_ar(getattr(asig, 'fecha_completado', None))
 
                 if salida_idx == 4:
                     rango_fechas = f"{f_asig}\n{f_comp}" if f_comp else f_asig
@@ -236,7 +258,10 @@ class PlanillaService:
 
                 sheet.batch_update(lista_actualizaciones, value_input_option='USER_ENTERED')
                 sheet.batch_format(lista_formatos)
-                print(f"[SHEETS SUCCESS] Territorio {numero_territorio} (fila lógica {fila_logica} -> fila Sheets {fila_base}) sincronizado en '{nombre_planilla}'")
-            
+                print(f"✅ [SHEETS SUCCESS] Territorio {numero_territorio} (fila {fila_logica} -> Sheets {fila_base}) escrito en '{nombre_planilla}' ({rango_cond})")
+
             except Exception as e:
                 print(f"❌ [SHEETS ERROR] Fallo al escribir fila {fila_logica} en '{nombre_planilla}': {str(e)}")
+                traceback.print_exc()
+
+        print(f"🏁 [SHEETS FIN] Sincronización finalizada para Territorio N°: {numero_territorio}")
