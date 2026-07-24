@@ -108,10 +108,6 @@ class PlanillaService:
         return conductor
 
     def sincronizar_territorio_completo_a_drive(self, numero_territorio: int):
-        """
-        Sincroniza todas las asignaciones de un territorio en Drive respetando 
-        estrictamente el historial posicionado.
-        """
         if not self.territorio_service:
             raise ValueError("Se requiere territorio_service para obtener el historial posicionado.")
 
@@ -122,6 +118,9 @@ class PlanillaService:
             return
 
         client = obtener_cliente_sheets()
+        
+        # Cache para no abrir la misma planilla múltiples veces en el bucle
+        planillas_abiertas = {}
 
         for asig in historial_out.historial_posicionado:
             nombre_planilla = asig.nombre_planilla
@@ -138,15 +137,21 @@ class PlanillaService:
             territorio_idx = numero_territorio - inicio_territorio
             fila_base = VALORES_FILAS[territorio_idx]
 
-            try:
-                spreadsheet = client.open(nombre_planilla)
-            except gspread.exceptions.SpreadsheetNotFound:
-                print(f"⚠️ [SHEETS ADVERTENCIA] No se encontró '{nombre_planilla}'. Creando...")
+            # Reutilizamos la instancia si ya se abrió previamente
+            if nombre_planilla not in planillas_abiertas:
                 try:
-                    spreadsheet = client.create(nombre_planilla)
-                except Exception as create_err:
-                    print(f"❌ [SHEETS ERROR] No se pudo crear en Drive: {str(create_err)}")
-                    continue
+                    planillas_abiertas[nombre_planilla] = client.open(nombre_planilla)
+                except gspread.exceptions.SpreadsheetNotFound:
+                    print(f"⚠️ [SHEETS ADVERTENCIA] No se encontró '{nombre_planilla}'. Creando...")
+                    try:
+                        planillas_abiertas[nombre_planilla] = client.create(nombre_planilla)
+                    except Exception as create_err:
+                        print(f"❌ [SHEETS ERROR] No se pudo crear en Drive: {str(create_err)}")
+                        continue
+
+            spreadsheet = planillas_abiertas.get(nombre_planilla)
+            if not spreadsheet:
+                continue
 
             sheet = spreadsheet.sheet1
 
