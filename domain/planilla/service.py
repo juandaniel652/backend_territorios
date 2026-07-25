@@ -55,14 +55,14 @@ class PlanillaService:
         if nombre_mapeado:
             return nombre_mapeado
 
-        # 2. Lógica dinámica para ciclos nuevos que se creen solos en la DB
+        # 2. Lógica dinámica para ciclos nuevos
         anio_servicio = obtener_anio_servicio()
         proximo_numero = 1
 
         if planilla_repo:
             try:
-                # Traemos la última planilla real creada en la DB para esta zona
-                ultima_planilla_db = planilla_repo.obtener_ultima_planilla_creada(zona, ciclo)
+                # Buscamos la última planilla real creada en DB para ESTA ZONA (sin filtrar por ciclo)
+                ultima_planilla_db = planilla_repo.obtener_ultima_planilla_creada(zona)
                 if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
                     from utils.recorrer_filas import extraer_info_planilla
                     num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
@@ -70,13 +70,13 @@ class PlanillaService:
                     if num_anterior is not None and anio_anterior is not None:
                         if anio_anterior == anio_servicio:
                             proximo_numero = num_anterior + 1
+                        else:
+                            proximo_numero = 1
             except Exception:
-                # Si algo falla leyendo el repositorio por estructura, usamos el ciclo actual como fallback
-                proximo_numero = ciclo
-
+                # Fallback seguro: si falla la DB, arrancamos en 1 (o mantenemos el correlativo base)
+                proximo_numero = 1
         else:
-            # Si no pasaron el repositorio, usamos de forma segura el ciclo como número correlativo
-            proximo_numero = ciclo
+            proximo_numero = 1
 
         rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
         rango_txt = rangos.get(zona, f"Zona {zona}")
