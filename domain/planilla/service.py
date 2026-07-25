@@ -8,18 +8,81 @@ import gspread
 
 from core.google_sheets import obtener_cliente_sheets
 from core.utils import obtener_anio_servicio
+# Importamos tus localizadores nativos
 import utils.recorrer_filas as archivo
 
+# Tus filas físicas fijas por territorio
 VALORES_FILAS = [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110]
 
 
 class PlanillaService:
 
-    def __init__(self, planilla_repo=None, territorio_service=None) -> None:
+    def __init__(self, planilla_repo=None) -> None:
         self.planilla_repo = planilla_repo
-        self.territorio_service = territorio_service
         self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+    @staticmethod
+    def generar_nombre_automatico(zona: int, ciclo: int, planilla_repo=None) -> str:
+        """
+        Genera el nombre oficial de la planilla de forma idéntica a territorio.
+        Busca primero en el mapeo histórico fijo y, si no está, calcula el nombre dinámico.
+        """
+        nombres_fijos = {
+            1: {
+                1: '1° Planilla, Casas 1-20; (2025)',
+                2: '2° Planilla, Casas 1-20; (2025)',
+                3: '3° Planilla, Casas 1-20; (2025)',
+                4: '1° Planilla, Casas 1-20; (2026)'
+            },
+            2: {
+                1: '2° Planilla, Casas 21-40; (2024)',
+                2: '3° Planilla, Casas 21-40; (2024)',
+                3: '4° Planilla, Casas 21-40; (2024)',
+                4: '1° Planilla, Casas 21-40; (2025)',
+                5: '1° Planilla, Casas 21-40; (2026)',
+                6: '2° Planilla, Casas 21-40; (2026)'
+            },
+            3: {
+                1: '1° Planilla, Casas 41-60; (2024)',
+                2: '2° Planilla, Casas 41-60; (2024)',
+                3: '1⁰ Planilla, Casas 41-60; (2025)',
+                4: '1ª Planilla, Casas 41-60; (2026)'
+            }
+        }
+
+        # 1. ¡PRIMERO REVISAR EL DICCIONARIO HISTÓRICO!
+        nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
+        if nombre_mapeado:
+            return nombre_mapeado
+
+        # 2. Lógica dinámica para ciclos nuevos que se creen solos en la DB
+        anio_servicio = obtener_anio_servicio()
+        proximo_numero = 1
+
+        if planilla_repo:
+            try:
+                # Traemos la última planilla real creada en la DB para esta zona
+                ultima_planilla_db = planilla_repo.obtener_ultima_planilla_creada(zona, ciclo)
+                if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
+                    from utils.recorrer_filas import extraer_info_planilla
+                    num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
+                    
+                    if num_anterior is not None and anio_anterior is not None:
+                        if anio_anterior == anio_servicio:
+                            proximo_numero = num_anterior + 1
+            except Exception:
+                # Si algo falla leyendo el repositorio por estructura, usamos el ciclo actual como fallback
+                proximo_numero = ciclo
+
+        else:
+            # Si no pasaron el repositorio, usamos de forma segura el ciclo como número correlativo
+            proximo_numero = ciclo
+
+        rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
+        rango_txt = rangos.get(zona, f"Zona {zona}")
+
+        return f"{proximo_numero}° Planilla, Casas {rango_txt}; ({anio_servicio})"
+    
     def detectar_zona_por_nombre(self, nombre_planilla: str) -> int:
         nombre_lower = nombre_planilla.lower()
         if "1-20" in nombre_lower:
@@ -53,50 +116,64 @@ class PlanillaService:
 
     def sincronizar_registro_bisturi(self, datos_registro: dict):
         """
-        Ubica y escribe quirúrgicamente un solo registro directo en Google Sheets.
+        Inyecta una única asignación en tiempo real en las coordenadas físicas 
+        exactas de Google Sheets calculadas por 'recorrer_fila_planilla'.
         """
-        print("=" * 60)
-        print("🎯 DEBUG BISTURÍ (Escribiendo registro en Sheets):")
-        print(f" -> Planilla: {datos_registro.get('nombre_planilla')}")
+        
+        print("="*60)
+        print(f"DEBUG BISTURÍ:")
+        print(f" -> Planilla a abrir en Drive: {datos_registro.get('nombre_planilla')}")
         print(f" -> Territorio: {datos_registro.get('numero_territorio')}")
         print(f" -> Fila lógica (1-5): {datos_registro.get('fila')}")
         print(f" -> Conductor: {datos_registro.get('conductor')}")
-        print("=" * 60)
-
+        print("="*60)
+        
         try:
             client = obtener_cliente_sheets()
-
+            
             nombre_planilla = datos_registro["nombre_planilla"]
             numero_territorio = datos_registro["numero_territorio"]
-            fila_logica = datos_registro["fila"]  # 1 a 5
+            fila_logica = datos_registro["fila"]  # 1 a 5 (salida_idx + 1)
             salida_idx = fila_logica - 1
 
-            # 1. Determinar zona e inicio
+            # 1. Resolver Zona mediante el nombre
             zona = self.detectar_zona_por_nombre(nombre_planilla)
             inicio_territorio = 1 if zona == 1 else (21 if zona == 2 else 41)
-
+            
+            # Calcular en qué índice de nuestra lista VALORES_FILAS cae este territorio
+            # Ej: Territorio 1 en Zona 1 -> índice 0 -> Fila base 15
+            # Ej: Territorio 26 en Zona 2 -> índice 5 -> Fila base 40
             if numero_territorio < inicio_territorio or numero_territorio >= inicio_territorio + len(VALORES_FILAS):
-                print(f"[SHEETS OMITIDO] Territorio {numero_territorio} fuera de zona {zona}")
+                print(f"[SHEETS OMITIDO] El territorio {numero_territorio} está fuera del rango lógico de la zona {zona}")
                 return
 
-            # 2. Fila base directa
             territorio_idx = numero_territorio - inicio_territorio
             fila_base = VALORES_FILAS[territorio_idx]
 
-            # 3. Abrir o crear planilla de un tiro
+            #2. Editar o inserar en hoja
+            #RECORDA... TENES QUE AJUSTAR EL FECHA DE ASINGADO DEL FRON A DOMINGO, ESTA EN LUNES
             try:
                 spreadsheet = client.open(nombre_planilla)
             except gspread.exceptions.SpreadsheetNotFound:
-                print(f"⚠️ [SHEETS] No se encontró '{nombre_planilla}'. Creándola...")
+                print(f"⚠️ [SHEETS ADVERTENCIA] No se encontró la planilla '{nombre_planilla}'. Intentando crearla...")
                 try:
+                    # Crea una planilla nueva en la raíz de tu Drive con ese nombre exacto
                     spreadsheet = client.create(nombre_planilla)
+                    
+                    # 💡 NOTA: Las planillas nuevas vienen vacías. 
+                    # Si querés que hereden el diseño de tus planillas anteriores, 
+                    # podrías buscar una planilla modelo/base y clonarla en su lugar:
+                    # plantilla_base = client.open("Casas 1-20; (2026)") # Tu modelo base
+                    # spreadsheet = client.copy(plantilla_base.id, title=nombre_planilla)
+                    
+                    print(f"✨ [SHEETS CREADO] Se generó automáticamente el archivo físico en Drive: '{nombre_planilla}'")
                 except Exception as create_err:
-                    print(f"❌ [SHEETS ERROR] No se pudo crear: {str(create_err)}")
+                    print(f"❌ [SHEETS ERROR] No se pudo crear la planilla en Drive: {str(create_err)}")
                     return
-
+            
             sheet = spreadsheet.sheet1
 
-            # 4. Localización exacta en coordenadas
+            # 3. Localizar coordenadas físicas exactas del script original
             celdas_cond = archivo.localizar_celda_conductor(fila_base, 2)
             celdas_asig = archivo.localizar_celda_fecha_asignado(fila_base, 2)
             celdas_comp = archivo.localizar_celda_fecha_completado(fila_base, 2)
@@ -105,28 +182,26 @@ class PlanillaService:
             c_asig = celdas_asig[salida_idx]
             c_comp = celdas_comp[salida_idx]
 
+            # Convertir coordenadas numéricas a formato A1 (Ej: "B15")
             rango_cond = gspread.utils.rowcol_to_a1(c_cond[0], c_cond[1])
             rango_asig = gspread.utils.rowcol_to_a1(c_asig[0], c_asig[1])
             rango_comp = gspread.utils.rowcol_to_a1(c_comp[0], c_comp[1])
 
-            # 5. Formato de datos
-            conductor_base = self.preparar_texto_conductor(
-                datos_registro.get("conductor", ""), 
-                datos_registro.get("cantidad_abarcado", "")
-            )
-            f_asig = self.formatear_fecha_ar(datos_registro.get("fecha_asignado"))
-            f_comp = self.formatear_fecha_ar(datos_registro.get("fecha_completado"))
+            # 4. Construir Payload estético original
+            conductor_base = self.preparar_texto_conductor(datos_registro["conductor"], datos_registro["cantidad_abarcado"])
+            f_asig = self.formatear_fecha_ar(datos_registro["fecha_asignado"])
+            f_comp = self.formatear_fecha_ar(datos_registro["fecha_completado"])
 
-            if salida_idx == 4:  # Caso especial fila 5
+            if salida_idx == 4:  # Caso especial para la última fila física del bloque
                 rango_fechas = f"{f_asig}\n{f_comp}" if f_comp else f_asig
-                conductor_texto = f"{conductor_base}\n{rango_fechas}" if conductor_base else ""
+                conductor_texto = f"{conductor_base}\n{rango_fechas}"
                 f_asig, f_comp = "", ""
                 fuente_cond = 12
             else:
                 conductor_texto = conductor_base
-                fuente_cond = self.calcular_tamanio_fuente_conductor(conductor_texto) if conductor_texto else 12
+                fuente_cond = self.calcular_tamanio_fuente_conductor(conductor_texto)
 
-            # 6. Escritura directa
+            # 5. Organizar actualizaciones y formatos estilo Batch
             lista_actualizaciones = [
                 {'range': rango_cond, 'values': [[conductor_texto]]},
                 {'range': rango_asig, 'values': [[f_asig]]},
@@ -138,8 +213,7 @@ class PlanillaService:
                     "range": rango_cond,
                     "format": {
                         "textFormat": {"fontFamily": "Arial", "fontSize": fuente_cond},
-                        "horizontalAlignment": "CENTER", 
-                        "verticalAlignment": "MIDDLE"
+                        "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
                     }
                 }
             ]
@@ -148,16 +222,16 @@ class PlanillaService:
                     "range": r_fecha,
                     "format": {
                         "textFormat": {"fontFamily": "Arial", "fontSize": 32},
-                        "horizontalAlignment": "CENTER", 
-                        "verticalAlignment": "MIDDLE"
+                        "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
                     }
                 })
 
+            # 6. Impactar de manera atómica
             sheet.batch_update(lista_actualizaciones, value_input_option='USER_ENTERED')
             sheet.batch_format(lista_formatos)
-
-            print(f"🎯 [SHEETS SUCCESS] Ubicado Territorio {numero_territorio} en '{nombre_planilla}'")
+            
+            print(f"[SHEETS SUCCESS] Sincronizado Territorio {numero_territorio} en Fila Física {fila_base} de la planilla: '{nombre_planilla}'")
 
         except Exception as e:
-            print("[SHEETS ERROR] Falló al sincronizar registro:")
+            print("[SHEETS ERROR] Falló la sincronización con Google Sheets:")
             traceback.print_exc()

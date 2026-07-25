@@ -1,4 +1,6 @@
 """
+domain/territorio/service.py
+
 Capa de servicio del dominio Territorio.
 
 Responsabilidades:
@@ -6,12 +8,23 @@ Responsabilidades:
   - Aplicar reglas de negocio (severidad, rangos válidos, cache)
   - Lanzar excepciones de dominio (HTTPException vive en el router, no aquí*)
   - Devolver schemas listos para serializar
+
+*Excepción práctica: usamos HTTPException de FastAPI para mantener
+ consistencia con el resto del stack sin agregar excepciones custom
+ por ahora. En un sistema más grande convendría excepciones de dominio
+ propias y un handler en el router.
+
+Reemplaza:
+  - Lógica de severidad inline de sugerir_territorios.py
+  - Lógica de ordenamiento inline de app.py
+  - Cache en-memoria de sugerir_territorios.py (ahora encapsulado aquí)
 """
 
 from datetime import date, timedelta
+from .repository import TerritorioRepository
 from time import time
-from typing import List
 from fastapi import HTTPException
+from typing import List
 
 from domain.territorio.repository import TerritorioRepositoryProtocol
 from domain.territorio.schema import (
@@ -20,13 +33,13 @@ from domain.territorio.schema import (
     SugerenciasOut,
     TerritorioPlanillaInfo,
     HistorialPosicionadoOut,
-    AsignacionPosicionada,
-    SemanaDisponible,
-    ReporteTerritorioSemanal
+    AsignacionPosicionada
 )
+
 
 from core.utils import extraer_info_planilla, obtener_anio_servicio
 from domain.planilla.repository import PlanillaRepository
+from domain.territorio.schema import SemanaDisponible, ReporteTerritorioSemanal
 
 # ─────────────────────────────────────────────
 # Configuración de rangos válidos y cache
@@ -41,17 +54,21 @@ RANGOS_VALIDOS: dict[str, tuple[int, int]] = {
 _CACHE: dict[str, tuple[SugerenciasOut, float]] = {}
 CACHE_TTL = 300  # segundos
 
+# Diccionario para nombres de meses cortos en español
 MESES_ES = {
     1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
     7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
 }
-
 
 # ─────────────────────────────────────────────
 # Reglas de negocio puras
 # ─────────────────────────────────────────────
 
 def _calcular_severidad(dias: int | None) -> str:
+    """
+    Regla de negocio: clasifica un territorio según días sin asignación.
+    Función pura — sin efectos secundarios, fácil de testear unitariamente.
+    """
     if dias is None:
         return "nunca"
     if dias >= 30:
@@ -64,6 +81,7 @@ def _calcular_severidad(dias: int | None) -> str:
 def _enriquecer_sugerencia(
     sugerencia: SugerenciaTerritorio, hoy: date
 ) -> SugerenciaTerritorio:
+    """Agrega dias_atraso y severidad a una sugerencia cruda del repositorio."""
     dias = (hoy - sugerencia.ultima_fecha).days if sugerencia.ultima_fecha else None
     return sugerencia.model_copy(update={
         "dias_atraso": dias,
@@ -76,6 +94,10 @@ def _enriquecer_sugerencia(
 # ─────────────────────────────────────────────
 
 class TerritorioService:
+    """
+    Orquesta el dominio Territorio.
+    Depende del protocolo → no del repositorio concreto (DI).
+    """
 
     def __init__(self, repo: TerritorioRepositoryProtocol, planilla_repo: PlanillaRepository = None) -> None:
         self.repo = repo
@@ -84,6 +106,12 @@ class TerritorioService:
     # ── Historial ────────────────────────────
 
     def obtener_historial(self, numero: int) -> TerritorioConAsignacionesOut:
+        """
+        Devuelve el historial completo de asignaciones para un territorio.
+        Si no existe el territorio o no tiene asignaciones devuelve lista vacía
+        con un mensaje informativo (no lanza 404 — el territorio puede existir
+        sin asignaciones todavía).
+        """
         asignaciones = self.repo.obtener_asignaciones_historial(numero)
 
         if not asignaciones:
@@ -103,12 +131,16 @@ class TerritorioService:
     # ── Sugerencias ──────────────────────────
 
     def obtener_sugerencias(self, rango: str, limit: int) -> SugerenciasOut:
+        """
+        Devuelve territorios más atrasados usando la lógica de semáforo de DB.
+        """
         if rango not in RANGOS_VALIDOS:
             raise HTTPException(
                 status_code=400,
                 detail=f"Rango inválido. Opciones: {list(RANGOS_VALIDOS.keys())}",
             )
 
+        # ── Cache hit ──
         cache_key = f"{rango}:{limit}"
         now = time()
         if cache_key in _CACHE:
@@ -116,12 +148,17 @@ class TerritorioService:
             if now - timestamp < CACHE_TTL:
                 return data.model_copy(update={"cache": True})
 
+        # ── Cache miss: llamar al REPO con el método de antigüedad ──
         desde, hasta = RANGOS_VALIDOS[rango]
+        
+        # IMPORTANTE: Llamamos al método que tiene la query de Supabase
         sugerencias_db = self.repo.obtener_sugerencias_antiguedad(desde=desde, hasta=hasta, limit=limit)
 
+        # Convertimos los dicts de la DB al Schema Pydantic SugerenciaTerritorio
         sugerencias = [
             SugerenciaTerritorio(
                 numero=s["numero"],
+                # Cambiamos esto para que sea más robusto
                 ultima_fecha=date.fromisoformat(s["ultima_visita"]) if (s["ultima_visita"] and s["ultima_visita"] != "Nunca") else None,
                 dias_atraso=s["dias_atraso"],
                 severidad=s["severidad"]
@@ -143,14 +180,17 @@ class TerritorioService:
         return dias.index(dia_nombre)
 
     def _valida_restricciones(self, t, dia_nombre: str, turno: str) -> bool:
+        # Sábado es "libre" según tu doc
         if dia_nombre == "sabado":
             return True
         
+        # Filtro de turno
         if turno == "AM" and not t.permite_am:
             return False
         if turno == "PM" and not t.permite_pm:
             return False
         
+        # Filtro de Zona 3 (Solo sábados)
         if t.zona == 3:
             return False
             
@@ -158,6 +198,7 @@ class TerritorioService:
 
     @staticmethod
     def calcular_score(territorio, fecha_planificada: date) -> float:
+        # 'territorio.ultima_fecha_completado' ahora dispara la @hybrid_property y busca en el historial
         if territorio.ultima_fecha_completado:
             dias_desde = (fecha_planificada - territorio.ultima_fecha_completado).days
         else:
@@ -167,13 +208,17 @@ class TerritorioService:
         return (dias_desde * 1.2) + bono_zona
     
     def generar_propuesta_dia(self, fecha_objetivo: date):
+        # 1. Determinar si es sábado (5 es sábado en Python)
         es_sabado = fecha_objetivo.weekday() == 5
+        
+        # 2. Pedir al repo los territorios según la regla de negocio
         raw_sugerencias = self.repo.obtener_sugerencias_por_dia(es_sabado=es_sabado)
         
         propuesta = []
         for s in raw_sugerencias:
             num = s["numero"]
             
+            # Clasificación visual para el frontend
             if 42 <= num <= 60: 
                 zona_tag = "Zona 3 (Sábado)"
             elif num in [28, 29, 30, 31, 39, 40, 41]: 
@@ -181,6 +226,7 @@ class TerritorioService:
             else: 
                 zona_tag = "Zona Estándar"
 
+            # El retorno debe matchear con PropuestaDiaOut
             propuesta.append({
                 "territorio_id": s["id"],
                 "numero": num,
@@ -219,6 +265,7 @@ class TerritorioService:
         actual_fila = ((total - 1) % 5) + 1
         zona = info_db.get("zona") or 1
 
+        # Si la fila actual es 5, la PRÓXIMA asignación pertence al ciclo siguiente
         if actual_fila == 5:
             sig_ciclo = actual_ciclo + 1
             sig_fila = 1
@@ -226,6 +273,8 @@ class TerritorioService:
             sig_ciclo = actual_ciclo
             sig_fila = actual_fila + 1
 
+        # IMPORTANTE: Para saber qué planilla abrir en la PRÓXIMA asignación, 
+        # evaluamos dinámicamente usando `sig_ciclo`, no el ciclo anterior.
         nombre_planilla = self.obtener_nombre_dinamico(zona, sig_ciclo)
 
         return TerritorioPlanillaInfo(
@@ -264,24 +313,35 @@ class TerritorioService:
             }
         }
 
+        # ¡PRIMERO REVISAR EL DICCIONARIO HISTÓRICO!
+        # Si el ciclo actual está en el diccionario, devolvemos ese string exacto.
         nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
         if nombre_mapeado:
             return nombre_mapeado
 
+        # 2. Lógica de lectura y suma (Para ciclos futuros que no estén en el diccionario)
         anio_servicio = obtener_anio_servicio()
+        
+        # Pasamos el ciclo actual a la consulta para buscar solo ciclos anteriores reales
         ultima_planilla_db = self.planilla_repo.obtener_ultima_planilla_creada(zona, ciclo)
         
         if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
+            # Ejecutamos tu extractor
             num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
             
+            # --- PRETESTING / VALIDACIÓN DE SEGURIDAD ---
             if num_anterior is None or anio_anterior is None:
+                # Si el string de la DB estaba corrupto o no se pudo leer,
+                # asumimos que no hay un historial confiable y empezamos en 1
                 proximo_numero = 1
             else:
+                # Si la tupla es válida, seguimos con la lógica normal
                 if anio_anterior == anio_servicio:
                     proximo_numero = num_anterior + 1
                 else:
                     proximo_numero = 1
         else:
+            # Caso base si es la primera planilla absoluta en la DB para esa zona
             proximo_numero = 1
 
         rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
@@ -290,7 +350,14 @@ class TerritorioService:
         return f"{proximo_numero}° Planilla, Casas {rango_txt}; ({anio_servicio})"
     
     def obtener_historial_posicionado(self, numero: int) -> HistorialPosicionadoOut:
+        """
+        Cruza el historial con la posición matemática que tuvo cada salida en las planillas,
+        ordenado estrictamente de manera cronológica (desempatando por ID).
+        """
+        # 1. Obtener la zona para el cálculo del nombre dinámico de planilla
         zona = self.repo.obtener_zona_de_territorio(numero) or 1
+
+        # 2. Traer asignaciones existentes
         asignaciones_crudas = self.repo.obtener_asignaciones_historial(numero)
 
         if not asignaciones_crudas:
@@ -300,6 +367,7 @@ class TerritorioService:
                 mensaje="No hay asignaciones para este territorio",
             )
 
+        # 3. Ordenar cronológicamente (Fecha, ID) para resolver empates sin sobreingeniería
         asignaciones_ordenadas = sorted(
             asignaciones_crudas,
             key=lambda x: (x.fecha_asignado if x.fecha_asignado else date.min, x.id)
@@ -307,9 +375,12 @@ class TerritorioService:
 
         historial_posicionado = []
 
+        # 4. Mapeo incremental base 1
         for i, asig in enumerate(asignaciones_ordenadas, start=1):
             ciclo_asig = ((i - 1) // 5) + 1
             fila_asig = ((i - 1) % 5) + 1
+
+            # Reutiliza tu lógica dinámica actual que lee el diccionario fijos o base de datos
             nombre_planilla = self.obtener_nombre_dinamico(zona, ciclo_asig)
 
             historial_posicionado.append(
@@ -331,6 +402,10 @@ class TerritorioService:
         )
 
     def obtener_semanas_disponibles(self) -> List[SemanaDisponible]:
+        """
+        Agrupa las fechas con asignaciones de la DB en semanas naturales (Lunes a Domingo)
+        y devuelve la lista formateada para alimentar el dropdown del frontend.
+        """
         fechas = self.repo.obtener_todas_las_fechas_asignadas()
         if not fechas:
             return []
@@ -339,6 +414,7 @@ class TerritorioService:
         resultado: List[SemanaDisponible] = []
 
         for f in fechas:
+            # weekday() -> Lunes es 0, Domingo es 6
             lunes = f - timedelta(days=f.weekday())
             domingo = lunes + timedelta(days=6)
 
@@ -346,6 +422,7 @@ class TerritorioService:
             if rango not in semanas_registradas:
                 semanas_registradas.add(rango)
 
+                # Formateamos un label amigable en español
                 mes_lunes = MESES_ES[lunes.month]
                 mes_domingo = MESES_ES[domingo.month]
 
@@ -360,9 +437,13 @@ class TerritorioService:
                     fecha_fin=domingo
                 ))
 
+        # Las ordenamos cronológicamente descendentes (la semana más nueva primero)
         resultado.sort(key=lambda x: x.fecha_inicio, reverse=True)
         return resultado
 
     def obtener_reporte_semanal(self, fecha_inicio: date, fecha_fin: date) -> List[ReporteTerritorioSemanal]:
+        """Obtiene y mapea los territorios trabajados en la semana dada."""
         datos = self.repo.obtener_reporte_por_rango(fecha_inicio, fecha_fin)
         return [ReporteTerritorioSemanal(**item) for item in datos]
+    
+    
