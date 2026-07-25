@@ -313,31 +313,43 @@ class TerritorioService:
             }
         }
 
-        # Si el ciclo actual ya tiene nombre histórico asignado, devolverlo
+        # Si el ciclo solicitado ya tiene un nombre fijo asignado, devolverlo
         nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
         if nombre_mapeado:
             return nombre_mapeado
 
-        # 2. Determinar Año de Servicio según la fecha (Septiembre -> Agosto)
+        # 2. Determinar Año de Servicio según la fecha
         anio_servicio = obtener_anio_servicio(fecha_ref)
         
-        # 3. Buscar la última planilla creada en DB para esta zona
-        ultima_planilla_db = self.planilla_repo.obtener_ultima_planilla_creada(zona, ciclo)
+        # 3. Mapeo inteligente para encontrar la planilla previa:
+        # A) Primero intentar obtener la planilla del ciclo anterior (ciclo - 1) desde el diccionario de fijos
+        nombre_anterior = nombres_fijos.get(zona, {}).get(ciclo - 1)
         
-        if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
-            num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
+        # B) Si el ciclo anterior no estaba en los fijos, ir a buscar a la DB
+        if not nombre_anterior and self.planilla_repo:
+            try:
+                res_db = self.planilla_repo.obtener_ultima_planilla_creada(zona, ciclo)
+                if res_db:
+                    # Contempla tanto objetos ORM como tuplas de SQLAlchemy (fetchone)
+                    if hasattr(res_db, 'nombre_planilla'):
+                        nombre_anterior = res_db.nombre_planilla
+                    elif isinstance(res_db, (tuple, list)):
+                        nombre_anterior = res_db[0]
+                    elif isinstance(res_db, dict):
+                        nombre_anterior = res_db.get('nombre_planilla')
+            except Exception:
+                nombre_anterior = None
+
+        # 4. Calcular el próximo ordinal basándonos en el nombre anterior encontrado
+        proximo_numero = 1
+        if nombre_anterior:
+            num_anterior, anio_anterior = extraer_info_planilla(nombre_anterior)
             
-            if num_anterior is None or anio_anterior is None:
-                proximo_numero = 1
-            else:
-                # Si es el mismo año de servicio incrementa ordinal (1° -> 2° -> 3°)
-                # Si saltó de año (ej: llegó Sep 2026 -> servicio 2027), reinicia en 1°
+            if num_anterior is not None and anio_anterior is not None:
                 if anio_anterior == anio_servicio:
                     proximo_numero = num_anterior + 1
                 else:
                     proximo_numero = 1
-        else:
-            proximo_numero = 1
 
         rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
         rango_txt = rangos.get(zona, f"Zona {zona}")
