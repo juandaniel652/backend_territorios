@@ -239,10 +239,10 @@ class TerritorioService:
     
     # ── Planillas ──────────────────────────
 
-    def obtener_estado_planilla(self, numero: int) -> TerritorioPlanillaInfo:
+    def obtener_estado_planilla(self, numero: int, fecha_ref: date = None) -> TerritorioPlanillaInfo:
         info_db = self.repo.obtener_estado_detallado(numero)
-        hoy = date.today()
-        anio_actual = obtener_anio_servicio(hoy)
+        fecha_ref = fecha_ref or date.today()
+        anio_actual = obtener_anio_servicio(fecha_ref)
 
         if not info_db or info_db.get("total_salidas", 0) == 0:
             if info_db:
@@ -250,7 +250,7 @@ class TerritorioService:
             else:
                 zona = self.repo.obtener_zona_de_territorio(numero) or 1
             
-            nombre_ini = self.obtener_nombre_dinamico(zona, 1)
+            nombre_ini = self.obtener_nombre_dinamico(zona, 1, fecha_ref)
             
             return TerritorioPlanillaInfo(
                 numero=numero, total_salidas=0,
@@ -265,7 +265,7 @@ class TerritorioService:
         actual_fila = ((total - 1) % 5) + 1
         zona = info_db.get("zona") or 1
 
-        # Si la fila actual es 5, la PRÓXIMA asignación pertence al ciclo siguiente
+        # Si la fila actual es 5, la PRÓXIMA asignación pertenece al ciclo siguiente
         if actual_fila == 5:
             sig_ciclo = actual_ciclo + 1
             sig_fila = 1
@@ -273,9 +273,8 @@ class TerritorioService:
             sig_ciclo = actual_ciclo
             sig_fila = actual_fila + 1
 
-        # IMPORTANTE: Para saber qué planilla abrir en la PRÓXIMA asignación, 
-        # evaluamos dinámicamente usando `sig_ciclo`, no el ciclo anterior.
-        nombre_planilla = self.obtener_nombre_dinamico(zona, sig_ciclo)
+        # Evaluamos dinámicamente usando `sig_ciclo` y la fecha de referencia
+        nombre_planilla = self.obtener_nombre_dinamico(zona, sig_ciclo, fecha_ref)
 
         return TerritorioPlanillaInfo(
             numero=numero,
@@ -289,7 +288,8 @@ class TerritorioService:
             mensaje_estado=f"Ciclo {actual_ciclo} - Fila {actual_fila}/5"
         )
         
-    def obtener_nombre_dinamico(self, zona: int, ciclo: int):
+    def obtener_nombre_dinamico(self, zona: int, ciclo: int, fecha_ref: date = None) -> str:
+        # 1. Diccionario de planillas históricas existentes
         nombres_fijos = {
             1: {
                 1: '1° Planilla, Casas 1-20; (2025)',
@@ -313,35 +313,30 @@ class TerritorioService:
             }
         }
 
-        # ¡PRIMERO REVISAR EL DICCIONARIO HISTÓRICO!
-        # Si el ciclo actual está en el diccionario, devolvemos ese string exacto.
+        # Si el ciclo actual ya tiene nombre histórico asignado, devolverlo
         nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
         if nombre_mapeado:
             return nombre_mapeado
 
-        # 2. Lógica de lectura y suma (Para ciclos futuros que no estén en el diccionario)
-        anio_servicio = obtener_anio_servicio()
+        # 2. Determinar Año de Servicio según la fecha (Septiembre -> Agosto)
+        anio_servicio = obtener_anio_servicio(fecha_ref)
         
-        # Pasamos el ciclo actual a la consulta para buscar solo ciclos anteriores reales
+        # 3. Buscar la última planilla creada en DB para esta zona
         ultima_planilla_db = self.planilla_repo.obtener_ultima_planilla_creada(zona, ciclo)
         
         if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
-            # Ejecutamos tu extractor
             num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
             
-            # --- PRETESTING / VALIDACIÓN DE SEGURIDAD ---
             if num_anterior is None or anio_anterior is None:
-                # Si el string de la DB estaba corrupto o no se pudo leer,
-                # asumimos que no hay un historial confiable y empezamos en 1
                 proximo_numero = 1
             else:
-                # Si la tupla es válida, seguimos con la lógica normal
+                # Si es el mismo año de servicio incrementa ordinal (1° -> 2° -> 3°)
+                # Si saltó de año (ej: llegó Sep 2026 -> servicio 2027), reinicia en 1°
                 if anio_anterior == anio_servicio:
                     proximo_numero = num_anterior + 1
                 else:
                     proximo_numero = 1
         else:
-            # Caso base si es la primera planilla absoluta en la DB para esa zona
             proximo_numero = 1
 
         rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
@@ -381,7 +376,9 @@ class TerritorioService:
             fila_asig = ((i - 1) % 5) + 1
 
             # Reutiliza tu lógica dinámica actual que lee el diccionario fijos o base de datos
-            nombre_planilla = self.obtener_nombre_dinamico(zona, ciclo_asig)
+            nombre_planilla = self.obtener_nombre_dinamico(
+                zona, ciclo_asig, fecha_ref=asig.fecha_asignado
+            )
 
             historial_posicionado.append(
                 AsignacionPosicionada(
