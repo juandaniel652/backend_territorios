@@ -295,7 +295,8 @@ class TerritorioService:
                 1: '1° Planilla, Casas 1-20; (2025)',
                 2: '2° Planilla, Casas 1-20; (2025)',
                 3: '3° Planilla, Casas 1-20; (2025)',
-                4: '1° Planilla, Casas 1-20; (2026)'
+                4: '1° Planilla, Casas 1-20; (2026)',
+                5: '2° Planilla, Casas 1-20; (2026)',
             },
             2: {
                 1: '2° Planilla, Casas 21-40; (2024)',
@@ -303,7 +304,8 @@ class TerritorioService:
                 3: '4° Planilla, Casas 21-40; (2024)',
                 4: '1° Planilla, Casas 21-40; (2025)',
                 5: '1° Planilla, Casas 21-40; (2026)',
-                6: '2° Planilla, Casas 21-40; (2026)'
+                6: '2° Planilla, Casas 21-40; (2026)',
+                7: '3° Planilla, Casas 21-40; (2026)'
             },
             3: {
                 1: '1° Planilla, Casas 41-60; (2024)',
