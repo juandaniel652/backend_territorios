@@ -32,6 +32,7 @@ class Settings(BaseSettings):
             "http://localhost:3000",
             "http://127.0.0.1:3000",
             "https://territorios-albertina.vercel.app",
+            "https://territorios-albertina.jddevar.com"
 
         ]
     )

@@ -4,37 +4,30 @@ domain/territorio/service.py
 Capa de servicio del dominio Territorio.
 
 Responsabilidades:
-  - Orquestar llamadas al repositorio
-  - Aplicar reglas de negocio (severidad, rangos válidos, cache)
-  - Lanzar excepciones de dominio (HTTPException vive en el router, no aquí*)
-  - Devolver schemas listos para serializar
+    - Orquestar llamadas al repositorio
+    - Aplicar reglas de negocio (severidad, rangos válidos, cache)
+    - Lanzar excepciones de dominio (HTTPException vive en el router, no aquí*)
+    - Devolver schemas listos para serializar
 
 *Excepción práctica: usamos HTTPException de FastAPI para mantener
- consistencia con el resto del stack sin agregar excepciones custom
- por ahora. En un sistema más grande convendría excepciones de dominio
- propias y un handler en el router.
+    consistencia con el resto del stack sin agregar excepciones custom
+    por ahora. En un sistema más grande convendría excepciones de dominio
+    propias y un handler en el router.
 
 Reemplaza:
-  - Lógica de severidad inline de sugerir_territorios.py
-  - Lógica de ordenamiento inline de app.py
-  - Cache en-memoria de sugerir_territorios.py (ahora encapsulado aquí)
+    - Lógica de severidad inline de sugerir_territorios.py
+    - Lógica de ordenamiento inline de app.py
+    - Cache en-memoria de sugerir_territorios.py (ahora encapsulado aquí)
 """
 
 from datetime import date, timedelta
-from .repository import TerritorioRepository
+
 from time import time
 from fastapi import HTTPException
 from typing import List
 
 from domain.territorio.repository import TerritorioRepositoryProtocol
-from domain.territorio.schema import (
-    TerritorioConAsignacionesOut,
-    SugerenciaTerritorio,
-    SugerenciasOut,
-    TerritorioPlanillaInfo,
-    HistorialPosicionadoOut,
-    AsignacionPosicionada
-)
+from domain.territorio.schema import (TerritorioConAsignacionesOut, SugerenciaTerritorio, SugerenciasOut, TerritorioPlanillaInfo, HistorialPosicionadoOut, AsignacionPosicionada)
 
 
 from core.utils import extraer_info_planilla, obtener_anio_servicio

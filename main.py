@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     Eventos de inicio y cierre de la aplicación.
 
     startup:  crea tablas si no existen (útil en desarrollo/tests).
-              En producción se recomienda usar Alembic en lugar de create_all.
+            En producción se recomienda usar Alembic en lugar de create_all.
     shutdown: libera recursos del pool de conexiones.
     """
     # startup
