@@ -1,6 +1,3 @@
-"""
-backend/domain/planilla/service.py
-"""
 import os
 import traceback
 from datetime import datetime, date
@@ -154,9 +151,6 @@ class PlanillaService:
             zona = self.detectar_zona_por_nombre(nombre_planilla, numero_territorio)
             inicio_territorio = 1 if zona == 1 else (21 if zona == 2 else 41)
             
-            # Calcular en qué índice de nuestra lista VALORES_FILAS cae este territorio
-            # Ej: Territorio 1 en Zona 1 -> índice 0 -> Fila base 15
-            # Ej: Territorio 26 en Zona 2 -> índice 5 -> Fila base 40
             if numero_territorio < inicio_territorio or numero_territorio >= inicio_territorio + len(VALORES_FILAS):
                 print(f"[SHEETS OMITIDO] El territorio {numero_territorio} está fuera del rango lógico de la zona {zona}")
                 return
@@ -164,22 +158,13 @@ class PlanillaService:
             territorio_idx = numero_territorio - inicio_territorio
             fila_base = VALORES_FILAS[territorio_idx]
 
-            #2. Editar o inserar en hoja
-            #RECORDA... TENES QUE AJUSTAR EL FECHA DE ASINGADO DEL FRON A DOMINGO, ESTA EN LUNES
+            # 2. Abrir o crear la hoja
             try:
                 spreadsheet = client.open(nombre_planilla)
             except gspread.exceptions.SpreadsheetNotFound:
                 print(f"⚠️ [SHEETS ADVERTENCIA] No se encontró la planilla '{nombre_planilla}'. Intentando crearla...")
                 try:
-                    # Crea una planilla nueva en la raíz de tu Drive con ese nombre exacto
                     spreadsheet = client.create(nombre_planilla)
-                    
-                    # 💡 NOTA: Las planillas nuevas vienen vacías. 
-                    # Si querés que hereden el diseño de tus planillas anteriores, 
-                    # podrías buscar una planilla modelo/base y clonarla en su lugar:
-                    # plantilla_base = client.open("Casas 1-20; (2026)") # Tu modelo base
-                    # spreadsheet = client.copy(plantilla_base.id, title=nombre_planilla)
-                    
                     print(f"✨ [SHEETS CREADO] Se generó automáticamente el archivo físico en Drive: '{nombre_planilla}'")
                 except Exception as create_err:
                     print(f"❌ [SHEETS ERROR] No se pudo crear la planilla en Drive: {str(create_err)}")
@@ -187,7 +172,7 @@ class PlanillaService:
             
             sheet = spreadsheet.sheet1
 
-            # 3. Localizar coordenadas físicas exactas del script original
+            # 3. Localizar coordenadas físicas exactas
             celdas_cond = archivo.localizar_celda_conductor(fila_base, 2)
             celdas_asig = archivo.localizar_celda_fecha_asignado(fila_base, 2)
             celdas_comp = archivo.localizar_celda_fecha_completado(fila_base, 2)
@@ -201,46 +186,67 @@ class PlanillaService:
             rango_asig = gspread.utils.rowcol_to_a1(c_asig[0], c_asig[1])
             rango_comp = gspread.utils.rowcol_to_a1(c_comp[0], c_comp[1])
 
-            # 4. Construir Payload estético original
+            # 4. Construir Payload considerando celdas combinadas y salida_idx
             conductor_base = self.preparar_texto_conductor(datos_registro["conductor"], datos_registro["cantidad_abarcado"])
             f_asig = self.formatear_fecha_ar(datos_registro["fecha_asignado"])
             f_comp = self.formatear_fecha_ar(datos_registro["fecha_completado"])
 
-            if salida_idx == 4:  # Caso especial para la última fila física del bloque
+            lista_actualizaciones = []
+            lista_formatos = []
+
+            if salida_idx == 4:  # Salida 5 (Quinta fila del bloque)
+                # En la salida 5, conductor y fechas van unificados en celda_5
                 rango_fechas = f"{f_asig}\n{f_comp}" if f_comp else f_asig
-                conductor_texto = f"{conductor_base}\n{rango_fechas}"
-                f_asig, f_comp = "", ""
-                fuente_cond = 12
-            else:
+                conductor_texto = f"{conductor_base}\n{rango_fechas}" if rango_fechas else conductor_base
+                
+                lista_actualizaciones.append({'range': rango_cond, 'values': [[conductor_texto]]})
+                lista_formatos.append({
+                    "range": rango_cond,
+                    "format": {
+                        "textFormat": {"fontFamily": "Arial", "fontSize": 12},
+                        "horizontalAlignment": "CENTER", 
+                        "verticalAlignment": "MIDDLE"
+                    }
+                })
+            else:  # Salidas 1 a 4
                 conductor_texto = conductor_base
                 fuente_cond = self.calcular_tamanio_fuente_conductor(conductor_texto)
 
-            # 5. Organizar actualizaciones y formatos estilo Batch
-            lista_actualizaciones = [
-                {'range': rango_cond, 'values': [[conductor_texto]]},
-                {'range': rango_asig, 'values': [[f_asig]]},
-                {'range': rango_comp, 'values': [[f_comp]]}
-            ]
+                # Actualizamos Conductor, Fecha Asignado y Fecha Completado
+                lista_actualizaciones.extend([
+                    {'range': rango_cond, 'values': [[conductor_texto]]},
+                    {'range': rango_asig, 'values': [[f_asig]]},
+                    {'range': rango_comp, 'values': [[f_comp]]}
+                ])
 
-            lista_formatos = [
-                {
-                    "range": rango_cond,
-                    "format": {
-                        "textFormat": {"fontFamily": "Arial", "fontSize": fuente_cond},
-                        "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
+                lista_formatos.extend([
+                    {
+                        "range": rango_cond,
+                        "format": {
+                            "textFormat": {"fontFamily": "Arial", "fontSize": fuente_cond},
+                            "horizontalAlignment": "CENTER", 
+                            "verticalAlignment": "MIDDLE"
+                        }
+                    },
+                    {
+                        "range": rango_asig,
+                        "format": {
+                            "textFormat": {"fontFamily": "Arial", "fontSize": 32},
+                            "horizontalAlignment": "CENTER", 
+                            "verticalAlignment": "MIDDLE"
+                        }
+                    },
+                    {
+                        "range": rango_comp,
+                        "format": {
+                            "textFormat": {"fontFamily": "Arial", "fontSize": 32},
+                            "horizontalAlignment": "CENTER", 
+                            "verticalAlignment": "MIDDLE"
+                        }
                     }
-                }
-            ]
-            for r_fecha in [rango_asig, rango_comp]:
-                lista_formatos.append({
-                    "range": r_fecha,
-                    "format": {
-                        "textFormat": {"fontFamily": "Arial", "fontSize": 32},
-                        "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"
-                    }
-                })
+                ])
 
-            # 6. Impactar de manera atómica
+            # 5. Impacto atómico en Google Sheets
             sheet.batch_update(lista_actualizaciones, value_input_option='USER_ENTERED')
             sheet.batch_format(lista_formatos)
             
