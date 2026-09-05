@@ -31,11 +31,11 @@ class AsignacionService:
         db: Session,
         planilla_repo: PlanillaRepository,
         territorio_service: TerritorioService,
-        asignacion_repo: AsignacionRepositoryProtocol,  # Corregido
+        asignacion_repo: AsignacionRepositoryProtocol,
         territorio_repo: TerritorioRepositoryProtocol,
         conductor_repo: ConductorRepositoryProtocol,
         salida_repo: SalidaRepository,
-        planilla_service: PlanillaService = None,       # Agregado
+        planilla_service: PlanillaService = None,
     ) -> None:
         self.db = db
         self.planilla_repo = planilla_repo
@@ -45,6 +45,33 @@ class AsignacionService:
         self.conductor_repo = conductor_repo
         self.salida_repo = salida_repo
         self.planilla_service = planilla_service
+
+    def _resolver_o_crear_planilla(self, zona: str, ciclo: int, fecha_ref: date) -> tuple[int, str]:
+        """Obtiene el ID y nombre exacto de la planilla desde la DB según zona y ciclo."""
+        planilla_existente = (
+            self.db.query(NombrePlanilla)
+            .filter(NombrePlanilla.zona == zona, NombrePlanilla.ciclo == ciclo)
+            .first()
+        )
+
+        if planilla_existente:
+            return planilla_existente.id, planilla_existente.nombre_planilla
+
+        nombre_autogenerado = self.territorio_service.obtener_nombre_dinamico(
+            zona=zona, 
+            ciclo=ciclo
+        )
+        anio_servicio = obtener_anio_servicio(fecha_ref)
+
+        nueva_planilla = NombrePlanilla(
+            zona=zona,
+            ciclo=ciclo,
+            nombre_planilla=nombre_autogenerado,
+            anio=anio_servicio
+        )
+        self.db.add(nueva_planilla)
+        self.db.flush()
+        return nueva_planilla.id, nombre_autogenerado
 
     def crear_asignacion(self, data: AsignacionCreate):
         territorio = self.territorio_repo.obtener_por_numero(data.numero_territorio)
@@ -60,13 +87,9 @@ class AsignacionService:
         estado_vista = self.territorio_repo.obtener_estado_detallado(territorio.numero)
         
         if estado_vista:
-            # CORRECCIÓN DE BISTURÍ: 
-            # Si el estado dice que la próxima fila es 1 (y ya hay salidas acumuladas),
-            # significa que entramos al próximo ciclo (proximo_ciclo).
             if "proximo_ciclo" in estado_vista:
                 ciclo_calculado = estado_vista["proximo_ciclo"]
             else:
-                # O si calculás directo según la fila:
                 actual_c = estado_vista["ciclo_actual"]
                 fila_calc = estado_vista["proxima_fila"]
                 ciclo_calculado = actual_c + 1 if fila_calc == 1 and estado_vista.get("total_salidas", 0) > 0 else actual_c
@@ -78,32 +101,12 @@ class AsignacionService:
             fila_calculada = 1
             zona_territorio = territorio.zona
 
-        planilla_existente = (
-            self.db.query(NombrePlanilla)
-            .filter(NombrePlanilla.zona == zona_territorio, NombrePlanilla.ciclo == ciclo_calculado)
-            .first()
+        # Garantizamos la entidad de NombrePlanilla
+        planilla_id_final, nombre_planilla_final = self._resolver_o_crear_planilla(
+            zona=zona_territorio,
+            ciclo=ciclo_calculado,
+            fecha_ref=data.fecha_asignado
         )
-
-        if planilla_existente:
-            planilla_id_final = planilla_existente.id
-            nombre_planilla_final = planilla_existente.nombre_planilla
-        else:
-            nombre_autogenerado = self.territorio_service.obtener_nombre_dinamico(
-                zona=zona_territorio, 
-                ciclo=ciclo_calculado
-            )
-            anio_servicio = obtener_anio_servicio(data.fecha_asignado)
-
-            nueva_planilla = NombrePlanilla(
-                zona=zona_territorio,
-                ciclo=ciclo_calculado,
-                nombre_planilla=nombre_autogenerado,
-                anio=anio_servicio
-            )
-            self.db.add(nueva_planilla)
-            self.db.flush()
-            planilla_id_final = nueva_planilla.id
-            nombre_planilla_final = nombre_autogenerado
 
         nueva_asignacion = Asignacion(
             territorio_id=territorio.id,
@@ -119,21 +122,122 @@ class AsignacionService:
         self.db.add(nueva_asignacion)
         self.db.commit()
 
+        sheets_payload = {
+            "numero_territorio": territorio.numero,
+            "conductor": conductor_nombre_clean,
+            "fecha_asignado": data.fecha_asignado,
+            "fecha_completado": data.fecha_completado,
+            "cantidad_abarcado": data.cantidad_abarcado,
+            "fila": fila_calculada,
+            "nombre_planilla": nombre_planilla_final  # <-- NOMBRE EXACTO DE LA BD
+        }
+
+        # SINCRONIZACIÓN BISTURÍ CON GOOGLE SHEETS
+        if self.planilla_service:
+            try:
+                self.planilla_service.sincronizar_registro_bisturi(sheets_payload)
+            except Exception as e:
+                print(f"[WARN] No se pudo sincronizar en Google Sheets: {e}")
+
         return {
             "message": "Asignación registrada exitosamente con control dinámico de planillas",
             "asignacion_id": nueva_asignacion.id,
             "conductor_creado": conductor_creado,
-            "sheets_payload": {
-                "numero_territorio": territorio.numero,
-                "conductor": conductor_nombre_clean,
-                "fecha_asignado": data.fecha_asignado,
-                "fecha_completado": data.fecha_completado,
-                "cantidad_abarcado": data.cantidad_abarcado,
-                "fila": fila_calculada,
-                "nombre_planilla": nombre_planilla_final
+            "sheets_payload": sheets_payload
+        }
+
+    def resolver_agenda(self, items):
+        creables = []
+        rechazadas = []
+
+        claves = [(i.territorio_id, i.fecha_asignado, i.turno) for i in items]
+        if len(claves) != len(set(claves)):
+            raise HTTPException(
+                status_code=400,
+                detail="Hay duplicados dentro del mismo envío"
+            )
+
+        filtros = [
+            and_(
+                Salida.territorio_id == i.territorio_id,
+                Salida.fecha == i.fecha_asignado,
+                Salida.turno == i.turno
+            )
+            for i in items
+        ]
+
+        existentes = self.db.query(Salida).filter(or_(*filtros)).all()
+        conflictos_set = {(e.territorio_id, e.fecha, e.turno) for e in existentes}
+
+        for item in items:
+            key = (item.territorio_id, item.fecha_asignado, item.turno)
+
+            if key in conflictos_set:
+                rechazadas.append({
+                    "territorio_id": item.territorio_id,
+                    "fecha": item.fecha_asignado.isoformat(),
+                    "turno": item.turno,
+                    "motivo": "ocupado_en_db"
+                })
+                continue
+
+            territorio = self.territorio_repo.obtener_por_id(item.territorio_id)
+            if not territorio:
+                rechazadas.append({
+                    "territorio_id": item.territorio_id,
+                    "motivo": "territorio_invalido"
+                })
+                continue
+
+            conductor, _ = self.conductor_repo.obtener_o_crear(item.conductor)
+
+            # --- CORRECCIÓN DE CÁLCULO DE CICLO Y FILA BASADO EN LA VISTA ---
+            estado_vista = self.territorio_repo.obtener_estado_detallado(territorio.numero)
+            if estado_vista:
+                ciclo_calculado = estado_vista.get("proximo_ciclo", estado_vista.get("ciclo_actual", 1))
+                fila_calculada = estado_vista.get("proxima_fila", 1)
+                zona_territorio = estado_vista.get("zona", territorio.zona)
+            else:
+                ciclo_calculado = 1
+                fila_calculada = 1
+                zona_territorio = territorio.zona
+
+            planilla_id, nombre_planilla = self._resolver_o_crear_planilla(
+                zona=zona_territorio,
+                ciclo=ciclo_calculado,
+                fecha_ref=item.fecha_asignado
+            )
+
+            asignacion = Asignacion(
+                territorio_id=territorio.id,
+                conductor_id=conductor.id,
+                planilla_id=planilla_id,
+                planilla_ciclo=ciclo_calculado,
+                fila=fila_calculada,
+                fecha_asignado=item.fecha_asignado,
+                cantidad_abarcado=f"Turno: {item.turno} | Punto: {item.encuentro}",
+            )
+
+            salida = Salida(
+                territorio_id=territorio.id,
+                conductor_id=conductor.id,
+                fecha=item.fecha_asignado,
+                turno=item.turno,
+            )
+
+            creables.append({"asignacion": asignacion, "salida": salida})
+
+        return {
+            "ok": creables,
+            "fail": rechazadas,
+            "meta": {
+                "total": len(items),
+                "ok": len(creables),
+                "fail": len(rechazadas)
             }
         }
 
+    # Resto de métodos de la clase (sin cambios...)
     def actualizar_asignacion(self, asignacion_id: int, data: AsignacionUpdate) -> AsignacionUpdatedOut:
         try:
             asignacion = self.asignacion_repo.obtener_por_id(asignacion_id)
@@ -296,83 +400,6 @@ class AsignacionService:
         except Exception as e:
             self.db.rollback()
             raise HTTPException(500, f"Error al procesar la agenda: {str(e)}")
-
-    def resolver_agenda(self, items):
-        creables = []
-        rechazadas = []
-
-        claves = [(i.territorio_id, i.fecha_asignado, i.turno) for i in items]
-        if len(claves) != len(set(claves)):
-            raise HTTPException(
-                status_code=400,
-                detail="Hay duplicados dentro del mismo envío"
-            )
-
-        filtros = [
-            and_(
-                Salida.territorio_id == i.territorio_id,
-                Salida.fecha == i.fecha_asignado,
-                Salida.turno == i.turno
-            )
-            for i in items
-        ]
-
-        existentes = self.db.query(Salida).filter(or_(*filtros)).all()
-        conflictos_set = {(e.territorio_id, e.fecha, e.turno) for e in existentes}
-
-        for item in items:
-            key = (item.territorio_id, item.fecha_asignado, item.turno)
-
-            if key in conflictos_set:
-                rechazadas.append({
-                    "territorio_id": item.territorio_id,
-                    "fecha": item.fecha_asignado.isoformat(),
-                    "turno": item.turno,
-                    "motivo": "ocupado_en_db"
-                })
-                continue
-
-            territorio = self.territorio_repo.obtener_por_id(item.territorio_id)
-            if not territorio:
-                rechazadas.append({
-                    "territorio_id": item.territorio_id,
-                    "motivo": "territorio_invalido"
-                })
-                continue
-
-            conductor, _ = self.conductor_repo.obtener_o_crear(item.conductor)
-
-            visitas = self.asignacion_repo.contar_completadas(territorio.id)
-            planilla = visitas // 5 + 1
-            fila = visitas % 5 + 1
-
-            asignacion = Asignacion(
-                territorio_id=territorio.id,
-                conductor_id=conductor.id,
-                fecha_asignado=item.fecha_asignado,
-                cantidad_abarcado=f"Turno: {item.turno} | Punto: {item.encuentro}",
-                planilla_ciclo=planilla,
-                fila=fila,
-            )
-
-            salida = Salida(
-                territorio_id=territorio.id,
-                conductor_id=conductor.id,
-                fecha=item.fecha_asignado,
-                turno=item.turno,
-            )
-
-            creables.append({"asignacion": asignacion, "salida": salida})
-
-        return {
-            "ok": creables,
-            "fail": rechazadas,
-            "meta": {
-                "total": len(items),
-                "ok": len(creables),
-                "fail": len(rechazadas)
-            }
-        }
 
     def preview_agenda(self, data: AgendaConfirmar) -> dict:
         resultado = self.resolver_agenda(data.items)
