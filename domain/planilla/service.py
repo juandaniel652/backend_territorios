@@ -6,7 +6,7 @@ import traceback
 from datetime import datetime, date
 import gspread
 
-from core.google_sheets import obtener_cliente_sheets
+from core.google_sheets import get_sheets
 from core.utils import obtener_anio_servicio
 # Importamos tus localizadores nativos
 import utils.recorrer_filas as archivo
@@ -24,33 +24,37 @@ class PlanillaService:
     @staticmethod
     def generar_nombre_automatico(zona: int, ciclo: int, planilla_repo=None) -> str:
         """
-        Genera el nombre oficial de la planilla de forma idéntica a territorio.
-        Busca primero en el mapeo histórico fijo y, si no está, calcula el nombre dinámico.
+        Genera el nombre oficial de la planilla buscando primero en el mapeo histórico.
         """
         nombres_fijos = {
             1: {
                 1: '1° Planilla, Casas 1-20; (2025)',
                 2: '2° Planilla, Casas 1-20; (2025)',
                 3: '3° Planilla, Casas 1-20; (2025)',
-                4: '1° Planilla, Casas 1-20; (2026)'
+                4: '1° Planilla, Casas 1-20; (2026)',
+                5: '2° Planilla, Casas 1-20; (2026)'
             },
             2: {
                 1: '2° Planilla, Casas 21-40; (2024)',
                 2: '3° Planilla, Casas 21-40; (2024)',
                 3: '4° Planilla, Casas 21-40; (2024)',
                 4: '1° Planilla, Casas 21-40; (2025)',
-                5: '1° Planilla, Casas 21-40; (2026)',
-                6: '2° Planilla, Casas 21-40; (2026)'
+                5: '2° Planilla, Casas 21-40; (2025)',
+                6: '3° Planilla, Casas 21-40; (2025)',
+                7: '1° Planilla, Casas 21-40; (2026)',
+                8: '2° Planilla, Casas 21-40; (2026)'
             },
             3: {
                 1: '1° Planilla, Casas 41-60; (2024)',
                 2: '2° Planilla, Casas 41-60; (2024)',
-                3: '1⁰ Planilla, Casas 41-60; (2025)',
-                4: '1ª Planilla, Casas 41-60; (2026)'
+                3: '1° Planilla, Casas 41-60; (2025)',
+                4: '2° Planilla, Casas 41-60; (2025)',
+                5: '1° Planilla, Casas 41-60; (2026)',
+                6: '2° Planilla, Casas 41-60; (2026)'
             }
         }
 
-        # 1. ¡PRIMERO REVISAR EL DICCIONARIO HISTÓRICO!
+        # 1. Revisar diccionario histórico
         nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
         if nombre_mapeado:
             return nombre_mapeado
@@ -61,7 +65,6 @@ class PlanillaService:
 
         if planilla_repo:
             try:
-                # Buscamos la última planilla real creada en DB para ESTA ZONA (sin filtrar por ciclo)
                 ultima_planilla_db = planilla_repo.obtener_ultima_planilla_creada(zona)
                 if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
                     from utils.recorrer_filas import extraer_info_planilla
@@ -73,24 +76,35 @@ class PlanillaService:
                         else:
                             proximo_numero = 1
             except Exception:
-                # Fallback seguro: si falla la DB, arrancamos en 1 (o mantenemos el correlativo base)
                 proximo_numero = 1
-        else:
-            proximo_numero = 1
 
         rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
         rango_txt = rangos.get(zona, f"Zona {zona}")
 
         return f"{proximo_numero}° Planilla, Casas {rango_txt}; ({anio_servicio})"
     
-    def detectar_zona_por_nombre(self, nombre_planilla: str) -> int:
+    def detectar_zona_por_nombre(self, nombre_planilla: str, numero_territorio: int = None) -> int:
+        """
+        Determina la zona por el nombre de la planilla. Si no coincide el string,
+        usa el número de territorio como fallback seguro.
+        """
         nombre_lower = nombre_planilla.lower()
-        if "1-20" in nombre_lower:
+        if "1-20" in nombre_lower or "casas 1" in nombre_lower:
             return 1
-        elif "21-40" in nombre_lower:
+        elif "21-40" in nombre_lower or "casas 21" in nombre_lower:
             return 2
-        elif "41-60" in nombre_lower:
+        elif "41-60" in nombre_lower or "casas 41" in nombre_lower:
             return 3
+        
+        # Fallback por número de territorio si la cadena de texto no coincide
+        if numero_territorio is not None:
+            if 1 <= numero_territorio <= 20:
+                return 1
+            elif 21 <= numero_territorio <= 40:
+                return 2
+            elif 41 <= numero_territorio <= 60:
+                return 3
+
         raise ValueError(f"No se pudo determinar la zona para la planilla: {nombre_planilla}")
 
     def formatear_fecha_ar(self, f) -> str:
@@ -129,7 +143,7 @@ class PlanillaService:
         print("="*60)
         
         try:
-            client = obtener_cliente_sheets()
+            client = get_sheets()
             
             nombre_planilla = datos_registro["nombre_planilla"]
             numero_territorio = datos_registro["numero_territorio"]
@@ -137,7 +151,7 @@ class PlanillaService:
             salida_idx = fila_logica - 1
 
             # 1. Resolver Zona mediante el nombre
-            zona = self.detectar_zona_por_nombre(nombre_planilla)
+            zona = self.detectar_zona_por_nombre(nombre_planilla, numero_territorio)
             inicio_territorio = 1 if zona == 1 else (21 if zona == 2 else 41)
             
             # Calcular en qué índice de nuestra lista VALORES_FILAS cae este territorio
