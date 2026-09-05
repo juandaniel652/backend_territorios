@@ -5,81 +5,49 @@ import gspread
 
 from core.google_sheets import get_sheets
 from core.utils import obtener_anio_servicio
-# Importamos tus localizadores nativos
 import utils.recorrer_filas as archivo
 
-# Tus filas físicas fijas por territorio
 VALORES_FILAS = [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110]
 
 
 class PlanillaService:
 
-    def __init__(self, planilla_repo=None) -> None:
+    def __init__(self, planilla_repo=None, historial_repo=None) -> None:
         self.planilla_repo = planilla_repo
+        self.historial_repo = historial_repo
         self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-    @staticmethod
-    def generar_nombre_automatico(zona: int, ciclo: int, planilla_repo=None) -> str:
+    def generar_nombre_automatico(self, zona: int, ciclo: int) -> str:
         """
-        Genera el nombre oficial de la planilla buscando primero en el mapeo histórico.
+        Genera/Obtiene el nombre de la planilla buscando primero en el historial
+        posicionado guardado en la base de datos.
         """
-        nombres_fijos = {
-            1: {
-                1: '1° Planilla, Casas 1-20; (2025)',
-                2: '2° Planilla, Casas 1-20; (2025)',
-                3: '3° Planilla, Casas 1-20; (2025)',
-                4: '1° Planilla, Casas 1-20; (2026)',
-                5: '2° Planilla, Casas 1-20; (2026)'
-            },
-            2: {
-                1: '2° Planilla, Casas 21-40; (2024)',
-                2: '3° Planilla, Casas 21-40; (2024)',
-                3: '4° Planilla, Casas 21-40; (2024)',
-                4: '1° Planilla, Casas 21-40; (2025)',
-                5: '2° Planilla, Casas 21-40; (2025)',
-                6: '3° Planilla, Casas 21-40; (2025)',
-                7: '1° Planilla, Casas 21-40; (2026)',
-                8: '2° Planilla, Casas 21-40; (2026)'
-            },
-            3: {
-                1: '1° Planilla, Casas 41-60; (2024)',
-                2: '2° Planilla, Casas 41-60; (2024)',
-                3: '1° Planilla, Casas 41-60; (2025)',
-                4: '2° Planilla, Casas 41-60; (2025)',
-                5: '1° Planilla, Casas 41-60; (2026)',
-                6: '2° Planilla, Casas 41-60; (2026)'
-            }
-        }
-
-        # 1. Revisar diccionario histórico
-        nombre_mapeado = nombres_fijos.get(zona, {}).get(ciclo)
-        if nombre_mapeado:
-            return nombre_mapeado
-
-        # 2. Lógica dinámica para ciclos nuevos
-        anio_servicio = obtener_anio_servicio()
-        proximo_numero = 1
-
-        if planilla_repo:
+        # 1. Intentar leer directamente desde historial_posicionado si tenemos el repositorio
+        if self.historial_repo:
             try:
-                ultima_planilla_db = planilla_repo.obtener_ultima_planilla_creada(zona)
-                if ultima_planilla_db and ultima_planilla_db.nombre_planilla:
-                    from utils.recorrer_filas import extraer_info_planilla
-                    num_anterior, anio_anterior = extraer_info_planilla(ultima_planilla_db.nombre_planilla)
-                    
-                    if num_anterior is not None and anio_anterior is not None:
-                        if anio_anterior == anio_servicio:
-                            proximo_numero = num_anterior + 1
-                        else:
-                            proximo_numero = 1
-            except Exception:
-                proximo_numero = 1
+                # Busca el registro histórico correspondiente a esa zona y ciclo
+                registro_historial = self.historial_repo.obtener_por_zona_y_ciclo(zona, ciclo)
+                if registro_historial and getattr(registro_historial, 'nombre_planilla', None):
+                    return registro_historial.nombre_planilla
+            except Exception as e:
+                print(f"⚠️ [ADVERTENCIA] Error leyendo desde historial_posicionado: {e}")
 
+        # 2. Respaldar en planilla_repo si la última planilla creada tiene el nombre
+        if self.planilla_repo:
+            try:
+                ultima_planilla_db = self.planilla_repo.obtener_ultima_planilla_creada(zona)
+                if ultima_planilla_db and getattr(ultima_planilla_db, 'nombre_planilla', None):
+                    return ultima_planilla_db.nombre_planilla
+            except Exception as e:
+                print(f"⚠️ [ADVERTENCIA] Error consultando planilla_repo: {e}")
+
+        # 3. Fallback dinámico (construcción estándar si no existe ningún registro)
+        anio_servicio = obtener_anio_servicio()
         rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
         rango_txt = rangos.get(zona, f"Zona {zona}")
 
-        return f"{proximo_numero}° Planilla, Casas {rango_txt}; ({anio_servicio})"
-    
+        return f"{ciclo}° Planilla, Casas {rango_txt}; ({anio_servicio})"
+
     def detectar_zona_por_nombre(self, nombre_planilla: str, numero_territorio: int = None) -> int:
         """
         Determina la zona por el nombre de la planilla. Si no coincide el string,
@@ -130,7 +98,6 @@ class PlanillaService:
         Inyecta una única asignación en tiempo real en las coordenadas físicas 
         exactas de Google Sheets calculadas por 'recorrer_fila_planilla'.
         """
-        
         print("="*60)
         print(f"DEBUG BISTURÍ:")
         print(f" -> Planilla a abrir en Drive: {datos_registro.get('nombre_planilla')}")
@@ -195,7 +162,6 @@ class PlanillaService:
             lista_formatos = []
 
             if salida_idx == 4:  # Salida 5 (Quinta fila del bloque)
-                # En la salida 5, conductor y fechas van unificados en celda_5
                 rango_fechas = f"{f_asig}\n{f_comp}" if f_comp else f_asig
                 conductor_texto = f"{conductor_base}\n{rango_fechas}" if rango_fechas else conductor_base
                 
@@ -212,7 +178,6 @@ class PlanillaService:
                 conductor_texto = conductor_base
                 fuente_cond = self.calcular_tamanio_fuente_conductor(conductor_texto)
 
-                # Actualizamos Conductor, Fecha Asignado y Fecha Completado
                 lista_actualizaciones.extend([
                     {'range': rango_cond, 'values': [[conductor_texto]]},
                     {'range': rango_asig, 'values': [[f_asig]]},
