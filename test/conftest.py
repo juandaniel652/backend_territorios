@@ -26,6 +26,14 @@ from sqlalchemy.orm import sessionmaker
 from core.database import Base, get_db
 from main import app
 
+import sys
+from pathlib import Path
+
+# Agregar el directorio raíz 'backend' al path de Python
+root_dir = Path(__file__).resolve().parent.parent
+if str(root_dir) not in sys.path:
+    sys.path.insert(0, str(root_dir))
+
 # ── Motor SQLite en memoria ──────────────────────────────────────────────────
 # connect_args necesario para SQLite: permite compartir la conexión entre hilos
 # (FastAPI y pytest corren en hilos distintos).

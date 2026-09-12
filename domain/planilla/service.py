@@ -1,10 +1,11 @@
 import os
 import traceback
 from datetime import datetime, date
+from typing import Any, Optional
 import gspread
 
 from core.google_sheets import get_sheets
-from core.utils import obtener_anio_servicio
+from core.utils import obtener_anio_servicio, calcular_nombre_planilla_desde_salida
 import utils.recorrer_filas as archivo
 
 VALORES_FILAS = [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110]
@@ -17,36 +18,23 @@ class PlanillaService:
         self.historial_repo = historial_repo
         self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-    def generar_nombre_automatico(self, zona: int, ciclo: int) -> str:
+    # ============================================
+    # Lógica de elección y validación de planilla
+
+    def validar_planilla_en_sheets(self, client: gspread.Client, nombre_planilla: str) -> Optional[gspread.Spreadsheet]:
         """
-        Genera/Obtiene el nombre de la planilla buscando primero en el historial
-        posicionado guardado en la base de datos.
+        Intenta abrir el archivo de Google Sheets. Si no existe exactamente
+        con ese nombre, retorna None en lugar de romper la ejecución.
         """
-        # 1. Intentar leer directamente desde historial_posicionado si tenemos el repositorio
-        if self.historial_repo:
-            try:
-                # Busca el registro histórico correspondiente a esa zona y ciclo
-                registro_historial = self.historial_repo.obtener_por_zona_y_ciclo(zona, ciclo)
-                if registro_historial and getattr(registro_historial, 'nombre_planilla', None):
-                    return registro_historial.nombre_planilla
-            except Exception as e:
-                print(f"⚠️ [ADVERTENCIA] Error leyendo desde historial_posicionado: {e}")
-
-        # 2. Respaldar en planilla_repo si la última planilla creada tiene el nombre
-        if self.planilla_repo:
-            try:
-                ultima_planilla_db = self.planilla_repo.obtener_ultima_planilla_creada(zona)
-                if ultima_planilla_db and getattr(ultima_planilla_db, 'nombre_planilla', None):
-                    return ultima_planilla_db.nombre_planilla
-            except Exception as e:
-                print(f"⚠️ [ADVERTENCIA] Error consultando planilla_repo: {e}")
-
-        # 3. Fallback dinámico (construcción estándar si no existe ningún registro)
-        anio_servicio = obtener_anio_servicio()
-        rangos = {1: "1-20", 2: "21-40", 3: "41-60"}
-        rango_txt = rangos.get(zona, f"Zona {zona}")
-
-        return f"{ciclo}° Planilla, Casas {rango_txt}; ({anio_servicio})"
+        try:
+            spreadsheet = client.open(nombre_planilla.strip())
+            return spreadsheet
+        except gspread.exceptions.SpreadsheetNotFound:
+            print(f"❌ [SHEETS ERROR] La planilla '{nombre_planilla}' no existe en Google Drive.")
+            return None
+        except Exception as e:
+            print(f"⚠️ [SHEETS ERROR] Error al intentar abrir '{nombre_planilla}': {e}")
+            return None
 
     def detectar_zona_por_nombre(self, nombre_planilla: str, numero_territorio: int = None) -> int:
         """
@@ -72,27 +60,6 @@ class PlanillaService:
 
         raise ValueError(f"No se pudo determinar la zona para la planilla: {nombre_planilla}")
 
-    def formatear_fecha_ar(self, f) -> str:
-        if not f: return ""
-        if isinstance(f, (date, datetime)): return f.strftime("%d/%m/%Y")
-        f_str = str(f).strip()
-        try: return datetime.strptime(f_str, "%Y-%m-%d").strftime("%d/%m/%Y")
-        except ValueError:
-            try: return datetime.strptime(f_str, "%d/%m/%Y").strftime("%d/%m/%Y")
-            except ValueError: return f_str
-
-    def calcular_tamanio_fuente_conductor(self, texto: str) -> int:
-        largo = len(texto)
-        if largo <= 14: return 36
-        if largo >= 38: return 10
-        tamanio_calculado = 36 - ((largo - 14) * (36 - 10) / (38 - 14))
-        return int(round(tamanio_calculado))
-
-    def preparar_texto_conductor(self, conductor: str, cantidad_abarcado: str) -> str:
-        if cantidad_abarcado and str(cantidad_abarcado).strip().lower() != "completo":
-            return f"{conductor} ({cantidad_abarcado})"
-        return conductor
-
     def sincronizar_registro_bisturi(self, datos_registro: dict):
         """
         Inyecta una única asignación en tiempo real en las coordenadas físicas 
@@ -107,14 +74,24 @@ class PlanillaService:
         print("="*60)
         
         try:
+            nombre_planilla = datos_registro.get("nombre_planilla")
+            if not nombre_planilla:
+                print("❌ [SHEETS OMITIDO] No se proporcionó un nombre de planilla válido.")
+                return
+
             client = get_sheets()
             
-            nombre_planilla = datos_registro["nombre_planilla"]
+            # 1. Validar que la planilla exista en Drive antes de operar
+            spreadsheet = self.validar_planilla_en_sheets(client, nombre_planilla)
+            if not spreadsheet:
+                print(f"❌ [SHEETS CANCELADO] Omitiendo sincronización porque la planilla '{nombre_planilla}' no existe en Drive.")
+                return
+
             numero_territorio = datos_registro["numero_territorio"]
             fila_logica = datos_registro["fila"]  # 1 a 5 (salida_idx + 1)
             salida_idx = fila_logica - 1
 
-            # 1. Resolver Zona mediante el nombre
+            # 2. Resolver Zona mediante el nombre
             zona = self.detectar_zona_por_nombre(nombre_planilla, numero_territorio)
             inicio_territorio = 1 if zona == 1 else (21 if zona == 2 else 41)
             
@@ -124,19 +101,6 @@ class PlanillaService:
 
             territorio_idx = numero_territorio - inicio_territorio
             fila_base = VALORES_FILAS[territorio_idx]
-
-            # 2. Abrir o crear la hoja
-            try:
-                spreadsheet = client.open(nombre_planilla)
-            except gspread.exceptions.SpreadsheetNotFound:
-                print(f"⚠️ [SHEETS ADVERTENCIA] No se encontró la planilla '{nombre_planilla}'. Intentando crearla...")
-                try:
-                    spreadsheet = client.create(nombre_planilla)
-                    print(f"✨ [SHEETS CREADO] Se generó automáticamente el archivo físico en Drive: '{nombre_planilla}'")
-                except Exception as create_err:
-                    print(f"❌ [SHEETS ERROR] No se pudo crear la planilla en Drive: {str(create_err)}")
-                    return
-            
             sheet = spreadsheet.sheet1
 
             # 3. Localizar coordenadas físicas exactas
@@ -220,3 +184,27 @@ class PlanillaService:
         except Exception as e:
             print("[SHEETS ERROR] Falló la sincronización con Google Sheets:")
             traceback.print_exc()
+
+    # ============================================
+    # Métodos aplicados a formato y guardado visual en planilla
+    
+    def formatear_fecha_ar(self, f) -> str:
+        if not f: return ""
+        if isinstance(f, (date, datetime)): return f.strftime("%d/%m/%Y")
+        f_str = str(f).strip()
+        try: return datetime.strptime(f_str, "%Y-%m-%d").strftime("%d/%m/%Y")
+        except ValueError:
+            try: return datetime.strptime(f_str, "%d/%m/%Y").strftime("%d/%m/%Y")
+            except ValueError: return f_str
+
+    def calcular_tamanio_fuente_conductor(self, texto: str) -> int:
+        largo = len(texto)
+        if largo <= 14: return 36
+        if largo >= 38: return 10
+        tamanio_calculado = 36 - ((largo - 14) * (36 - 10) / (38 - 14))
+        return int(round(tamanio_calculado))
+
+    def preparar_texto_conductor(self, conductor: str, cantidad_abarcado: str) -> str:
+        if cantidad_abarcado and str(cantidad_abarcado).strip().lower() != "completo":
+            return f"{conductor} ({cantidad_abarcado})"
+        return conductor

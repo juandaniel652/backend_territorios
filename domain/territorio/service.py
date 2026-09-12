@@ -338,11 +338,11 @@ class TerritorioService:
         # 4. Calcular el próximo ordinal basándonos en el nombre anterior encontrado
         proximo_numero = 1
         if nombre_anterior:
-            num_anterior, anio_anterior = extraer_info_planilla(nombre_anterior)
+            numero_anterior, anio_anterior = extraer_info_planilla(nombre_anterior)
             
-            if num_anterior is not None and anio_anterior is not None:
+            if numero_anterior is not None and anio_anterior is not None:
                 if anio_anterior == anio_servicio:
-                    proximo_numero = num_anterior + 1
+                    proximo_numero = numero_anterior + 1
                 else:
                     proximo_numero = 1
 

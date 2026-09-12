@@ -472,7 +472,7 @@ class AsignacionService:
         proximo_ciclo = estado.proximo_ciclo 
         zona = self.territorio_repo.obtener_zona(estado.numero)
 
-        service_planilla = self.planilla_service or self.territorio_service
+        service_planilla = self.territorio_service
         nuevo_nombre = service_planilla.obtener_nombre_dinamico(zona, proximo_ciclo)
 
         self.planilla_repo.crear_planilla(

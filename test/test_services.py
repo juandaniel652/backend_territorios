@@ -275,3 +275,18 @@ class TestAsignacionService:
 
         assert exc.value.status_code == 500
         db.rollback.assert_called_once()
+        
+    def test_fecha_completado_anterior_a_asignado_lanza_422_o_400(self):
+        service, db = self._hacer_servicio()
+        payload_invalido = AsignacionCreate(
+            numero_territorio=5,
+            conductor="Pedro López",
+            fecha_asignado=date(2024, 4, 1),
+            fecha_completado=date(2024, 3, 1),  # Fecha invalida
+            cantidad_abarcado="Completo",
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            service.crear_asignacion(payload_invalido)
+
+        assert exc.value.status_code in (400, 422)
