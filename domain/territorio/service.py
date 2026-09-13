@@ -304,7 +304,7 @@ class TerritorioService:
                 1: '1° Planilla, Casas 41-60; (2024)',
                 2: '2° Planilla, Casas 41-60; (2024)',
                 3: '1⁰ Planilla, Casas 41-60; (2025)',
-                4: '1ª Planilla, Casas 41-60; (2026)'
+                4: '1⁰ Planilla, Casas 41-60; (2026)'
             }
         }
 
