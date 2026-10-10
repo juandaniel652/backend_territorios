@@ -53,7 +53,6 @@ app = FastAPI(
     # redoc_url=None if settings.ENVIRONMENT == "production" else "/redoc",
 )
 
-
 # ── Middleware ───────────────────────────────────────────────────────────────
 
 app.add_middleware(

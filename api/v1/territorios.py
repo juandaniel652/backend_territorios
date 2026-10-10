@@ -59,7 +59,7 @@ def get_territorio_service(db: Session = Depends(get_db)) -> TerritorioService:
 )
 def obtener_sugerencias(
     rango: str = Query(..., description="Rango de territorios: '1-20', '21-40' o '41-60'"),
-    limit: int = Query(default=10, ge=1, le=60),
+    limit: int = Query(default=12, ge=1, le=20),
     service: TerritorioService = Depends(get_territorio_service),
 ):
     return service.obtener_sugerencias(rango=rango, limit=limit)

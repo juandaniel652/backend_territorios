@@ -1,0 +1,46 @@
+INSERT INTO nombre_planilla (id, zona, ciclo, spreadsheet_id, nombre_planilla) 
+VALUES 
+  //(11, 1, 1, '1OhBQtxDd7N0mZ0hXWjniSKb9aqXMDTxctear9c5kb74', '1° Planilla, Casas 1-20; (2025)'),
+  (12, 1, 2, '1F0o5GikZMFP3o2k_kvFZhGvdpmEr1nkEQCc-L1LjuiE', '2° Planilla, Casas 1-20; (2025)'),
+  (13, 1, 3, '1vwBh0H2A5wlLXhqRCOmlinWP4OumH-DBngO_CKGVJHs', '3° Planilla, Casas 1-20; (2025)'),
+  (14, 1, 4, '1OYtufzXsM91O2xkhT0thCcgCo4U67fyJKzZIFIvShZ4', '1° Planilla, Casas 1-20; (2026)'),    
+  (15, 1, 5, '1Yx1EPc4Pyp8M3V20kXwYSCU6yc8w7lInCPykXUkPupk', '2° Planilla, Casas 1-20; (2026)'),
+  (16, 1, 6, '1gIV9CmOmsqNQ0Jf3AVp9DjymL2H9LADqETiqrQFxiOw', '1° Planilla, Casas 1-20; (2027)'),
+
+  //(21, 2, 1, '1krBg2ZTyk9br8T3m1mIy49MYTLSgIRKD8Bkb50JgPpw', '2° Planilla, Casas 21-40; (2024)'),
+  (22, 2, 2, '1BHSVGoX3wZFbffccz7wDjpWtr1s3Bjqb3FIvbRmnovg', '3° Planilla, Casas 21-40; (2024)'),
+  (23, 2, 3, '1FPluvgqTEhexjcD0nKq5AdA9M4cDa1mVgZJsfDKJfls', '4° Planilla, Casas 21-40; (2024)'),
+  (24, 2, 4, '1o1TUHcXtbf3zCpjahvOh4feI7_mgZREa7RNDvSjkJKc', '1° Planilla, Casas 21-40; (2025)'),
+  (25, 2, 5, '1ety2MHPcvkSAnU2wLIJN6lMwaJrI83ekJfxltzoPeP4', '1° Planilla, Casas 21-40; (2026)'),
+  (26, 2, 6, '1RB9fbyqN1sw2z4EN7QJ-_rmpFykxBdxpovahwYuHq2A', '2° Planilla, Casas 21-40; (2026)'),
+  (27, 2, 7, '1GjmcrVNbcsoCFVp8iz1p-V2zU_pyvX80OLV0ygc2hCQ', '3° Planilla, Casas 21-40; (2026)'),
+
+  //(31, 3, 1, '1k91m_gYN-di94fanf3F_u5pgwOemYdfvhWUyLxXMgio', '1° Planilla, Casas 41-60; (2024)'),
+  (32, 3, 2, '1I_59klTAxETqBsty7zpiky1KpkoFbtodqPzMKajxWd8', '2° Planilla, Casas 41-60; (2024)'),
+  (33, 3, 3, '1Qb25klM1tbyIqn8u_ffmTijxUsDzvVupslQA2T1aiLU', '1⁰ Planilla, Casas 41-60; (2025)'),
+  (34, 3, 4, '1xE8YJqcZR4ejTSMDMvFcL67nZnKCeqHuhS8UwjuByWY', '1⁰ Planilla, Casas 41-60; (2026)');
+
+
+  
+
+INSERT INTO nombres_planillas (codigo, zona, ciclo, spreadsheet_id, nombre_planilla, anio) 
+VALUES 
+  
+  (12, 1, 2, '1F0o5GikZMFP3o2k_kvFZhGvdpmEr1nkEQCc-L1LjuiE', '2° Planilla, Casas 1-20; (2025)', 2025),
+  (13, 1, 3, '1vwBh0H2A5wlLXhqRCOmlinWP4OumH-DBngO_CKGVJHs', '3° Planilla, Casas 1-20; (2025)', 2025),
+  (14, 1, 4, '1OYtufzXsM91O2xkhT0thCcgCo4U67fyJKzZIFIvShZ4', '1° Planilla, Casas 1-20; (2026)', 2026),
+  (15, 1, 5, '1Yx1EPc4Pyp8M3V20kXwYSCU6yc8w7lInCPykXUkPupk', '2° Planilla, Casas 1-20; (2026)', 2026),
+  (16, 1, 6, '1gIV9CmOmsqNQ0Jf3AVp9DjymL2H9LADqETiqrQFxiOw', '1° Planilla, Casas 1-20; (2027)', 2027),
+
+ 
+  (22, 2, 2, '1BHSVGoX3wZFbffccz7wDjpWtr1s3Bjqb3FIvbRmnovg', '3° Planilla, Casas 21-40; (2024)', 2024),
+  (23, 2, 3, '1FPluvgqTEhexjcD0nKq5AdA9M4cDa1mVgZJsfDKJfls', '4° Planilla, Casas 21-40; (2024)', 2024),
+  (24, 2, 4, '1o1TUHcXtbf3zCpjahvOh4feI7_mgZREa7RNDvSjkJKc', '1° Planilla, Casas 21-40; (2025)', 2025),
+  (25, 2, 5, '1ety2MHPcvkSAnU2wLIJN6lMwaJrI83ekJfxltzoPeP4', '1° Planilla, Casas 21-40; (2026)', 2026),
+  (26, 2, 6, '1RB9fbyqN1sw2z4EN7QJ-_rmpFykxBdxpovahwYuHq2A', '2° Planilla, Casas 21-40; (2026)', 2026),
+  (27, 2, 7, '1GjmcrVNbcsoCFVp8iz1p-V2zU_pyvX80OLV0ygc2hCQ', '3° Planilla, Casas 21-40; (2026)', 2026),
+
+
+  (32, 3, 2, '1I_59klTAxETqBsty7zpiky1KpkoFbtodqPzMKajxWd8', '2° Planilla, Casas 41-60; (2024)', 2024),
+  (33, 3, 3, '1Qb25klM1tbyIqn8u_ffmTijxUsDzvVupslQA2T1aiLU', '1° Planilla, Casas 41-60; (2025)', 2025),
+  (34, 3, 4, '1xE8YJqcZR4ejTSMDMvFcL67nZnKCeqHuhS8UwjuByWY', '1° Planilla, Casas 41-60; (2026)', 2026);

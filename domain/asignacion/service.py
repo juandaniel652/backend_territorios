@@ -46,32 +46,27 @@ class AsignacionService:
         self.salida_repo = salida_repo
         self.planilla_service = planilla_service
 
-    def _resolver_o_crear_planilla(self, zona: str, ciclo: int, fecha_ref: date) -> tuple[int, str]:
-        """Obtiene el ID y nombre exacto de la planilla desde la DB según zona y ciclo."""
-        planilla_existente = (
+    def _resolver_o_crear_planilla(self, zona: int, ciclo: int) -> tuple[int, str]:
+        """
+        Obtiene la planilla consultando por el código entero dinámico.
+        Soporta ciclos de 1 o más dígitos (ej: Zona 1, Ciclo 2 -> 12 | Zona 1, Ciclo 10 -> 110).
+        Devuelve (id_db, spreadsheet_id).
+        """
+        codigo_calculado = int(f"{zona}{ciclo}")
+
+        planilla = (
             self.db.query(NombrePlanilla)
-            .filter(NombrePlanilla.zona == zona, NombrePlanilla.ciclo == ciclo)
+            .filter(NombrePlanilla.codigo == codigo_calculado)
             .first()
         )
 
-        if planilla_existente:
-            return planilla_existente.id, planilla_existente.nombre_planilla
+        if not planilla:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No se encontró ninguna planilla registrada para el código {codigo_calculado} (Zona {zona}, Ciclo {ciclo})."
+            )
 
-        nombre_autogenerado = self.territorio_service.obtener_nombre_dinamico(
-            zona=zona, 
-            ciclo=ciclo
-        )
-        anio_servicio = obtener_anio_servicio(fecha_ref)
-
-        nueva_planilla = NombrePlanilla(
-            zona=zona,
-            ciclo=ciclo,
-            nombre_planilla=nombre_autogenerado,
-            anio=anio_servicio
-        )
-        self.db.add(nueva_planilla)
-        self.db.flush()
-        return nueva_planilla.id, nombre_autogenerado
+        return planilla.id, planilla.spreadsheet_id
 
     def crear_asignacion(self, data: AsignacionCreate):
         territorio = self.territorio_repo.obtener_por_numero(data.numero_territorio)
@@ -84,28 +79,19 @@ class AsignacionService:
         conductor_nombre_clean = data.conductor.strip()
         conductor, conductor_creado = self.conductor_repo.obtener_o_crear(conductor_nombre_clean)
 
-        estado_vista = self.territorio_repo.obtener_estado_detallado(territorio.numero)
-        
-        if estado_vista:
-            if "proximo_ciclo" in estado_vista:
-                ciclo_calculado = estado_vista["proximo_ciclo"]
-            else:
-                actual_c = estado_vista["ciclo_actual"]
-                fila_calc = estado_vista["proxima_fila"]
-                ciclo_calculado = actual_c + 1 if fila_calc == 1 and estado_vista.get("total_salidas", 0) > 0 else actual_c
-            
-            fila_calculada = estado_vista["proxima_fila"]
-            zona_territorio = estado_vista["zona"]
-        else:
-            ciclo_calculado = 1
-            fila_calculada = 1
-            zona_territorio = territorio.zona
+        # 📊 CÁLCULO DINÁMICO BASADO EN EL HISTORIAL DE SALIDAS ANTERIORES
+        # 📊 CÁLCULO DINÁMICO CONTANDO LAS ASIGNACIONES PREVIAS (NO SALIDAS)
+        total_asignaciones_previas = self.db.query(Asignacion).filter(Asignacion.territorio_id == territorio.id).count()
 
+        ciclo_calculado = (total_asignaciones_previas // 5) + 1
+        fila_calculada = (total_asignaciones_previas % 5) + 1
+        zona_territorio = territorio.zona
+
+        print(f"📊 [HISTORIAL TERRITORIO {territorio.numero}] Asignaciones previas: {total_asignaciones_previas} -> Ciclo: {ciclo_calculado} | Fila (lugar): {fila_calculada}")
         # Garantizamos la entidad de NombrePlanilla
-        planilla_id_final, nombre_planilla_final = self._resolver_o_crear_planilla(
+        planilla_id_final, spreadsheet_id_final = self._resolver_o_crear_planilla(
             zona=zona_territorio,
-            ciclo=ciclo_calculado,
-            fecha_ref=data.fecha_asignado
+            ciclo=ciclo_calculado
         )
 
         nueva_asignacion = Asignacion(
@@ -129,7 +115,8 @@ class AsignacionService:
             "fecha_completado": data.fecha_completado,
             "cantidad_abarcado": data.cantidad_abarcado,
             "fila": fila_calculada,
-            "nombre_planilla": nombre_planilla_final  # <-- NOMBRE EXACTO DE LA BD
+            "zona": zona_territorio,
+            "spreadsheet_id": spreadsheet_id_final
         }
 
         # SINCRONIZACIÓN BISTURÍ CON GOOGLE SHEETS
@@ -145,7 +132,7 @@ class AsignacionService:
             "conductor_creado": conductor_creado,
             "sheets_payload": sheets_payload
         }
-
+        
     def resolver_agenda(self, items):
         creables = []
         rechazadas = []
@@ -191,21 +178,16 @@ class AsignacionService:
 
             conductor, _ = self.conductor_repo.obtener_o_crear(item.conductor)
 
-            # --- CORRECCIÓN DE CÁLCULO DE CICLO Y FILA BASADO EN LA VISTA ---
-            estado_vista = self.territorio_repo.obtener_estado_detallado(territorio.numero)
-            if estado_vista:
-                ciclo_calculado = estado_vista.get("proximo_ciclo", estado_vista.get("ciclo_actual", 1))
-                fila_calculada = estado_vista.get("proxima_fila", 1)
-                zona_territorio = estado_vista.get("zona", territorio.zona)
-            else:
-                ciclo_calculado = 1
-                fila_calculada = 1
-                zona_territorio = territorio.zona
+            # 📊 CÁLCULO DINÁMICO BASADO EN EL HISTORIAL DE SALIDAS ANTERIORES TAMBIÉN AQUÍ
+            total_salidas_previas = self.db.query(Salida).filter(Salida.territorio_id == territorio.id).count()
 
-            planilla_id, nombre_planilla = self._resolver_o_crear_planilla(
+            ciclo_calculado = (total_salidas_previas // 5) + 1
+            fila_calculada = (total_salidas_previas % 5) + 1
+            zona_territorio = territorio.zona
+
+            planilla_id, spreadsheet_id = self._resolver_o_crear_planilla(
                 zona=zona_territorio,
-                ciclo=ciclo_calculado,
-                fecha_ref=item.fecha_asignado
+                ciclo=ciclo_calculado
             )
 
             asignacion = Asignacion(
@@ -237,7 +219,6 @@ class AsignacionService:
             }
         }
 
-    # Resto de métodos de la clase (sin cambios...)
     def actualizar_asignacion(self, asignacion_id: int, data: AsignacionUpdate) -> AsignacionUpdatedOut:
         try:
             asignacion = self.asignacion_repo.obtener_por_id(asignacion_id)

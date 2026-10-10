@@ -154,7 +154,7 @@ class AgendaQuincenalService:
         # 1. Traemos TODOS los territorios ordenados por su atraso real (score)
         sql_territorios = text("""
             SELECT t.id, t.numero, t.zona, t.permite_am, t.permite_pm,
-                   COALESCE(MAX(a.fecha_completado), '1970-01-01'::date) as ultima_fecha
+                    COALESCE(MAX(a.fecha_completado), '1970-01-01'::date) as ultima_fecha
             FROM territorios t
             LEFT JOIN asignaciones a ON t.id = a.territorio_id
             WHERE t.zona IN (1, 2, 3)

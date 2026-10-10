@@ -31,6 +31,8 @@ class Settings(BaseSettings):
             "http://localhost:5501",
             "http://localhost:3000",
             "http://127.0.0.1:3000",
+            "http://localhost:5173",    # Puerto por defecto de Vite
+            "http://127.0.0.1:5173",
             "https://territorios-albertina.vercel.app",
             "https://territorios-albertina.jddevar.com"
 

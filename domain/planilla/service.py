@@ -20,6 +20,19 @@ class PlanillaService:
 
     # ============================================
     # Lógica de elección y validación de planilla
+    
+    def validar_planilla_por_id(self, client: gspread.Client, spreadsheet_id: str) -> Optional[gspread.Spreadsheet]:
+        """
+        Abre el archivo de Google Sheets mediante su Spreadsheet ID inmutable.
+        """
+        try:
+            return client.open_by_key(spreadsheet_id)
+        except gspread.exceptions.SpreadsheetNotFound:
+            print(f"❌ [SHEETS ERROR] No existe la planilla en Drive con ID: '{spreadsheet_id}'")
+            return None
+        except Exception as e:
+            print(f"⚠️ [SHEETS ERROR] Error al abrir la planilla ID '{spreadsheet_id}': {e}")
+            return None
 
     def validar_planilla_en_sheets(self, client: gspread.Client, nombre_planilla: str) -> Optional[gspread.Spreadsheet]:
         """
@@ -64,35 +77,51 @@ class PlanillaService:
         """
         Inyecta una única asignación en tiempo real en las coordenadas físicas 
         exactas de Google Sheets calculadas por 'recorrer_fila_planilla'.
+        Usa el `spreadsheet_id` inmutable para evitar fallos por nombre.
         """
         print("="*60)
         print(f"DEBUG BISTURÍ:")
-        print(f" -> Planilla a abrir en Drive: {datos_registro.get('nombre_planilla')}")
+        print(f" -> Spreadsheet ID: {datos_registro.get('spreadsheet_id')}")
         print(f" -> Territorio: {datos_registro.get('numero_territorio')}")
         print(f" -> Fila lógica (1-5): {datos_registro.get('fila')}")
         print(f" -> Conductor: {datos_registro.get('conductor')}")
         print("="*60)
         
         try:
-            nombre_planilla = datos_registro.get("nombre_planilla")
-            if not nombre_planilla:
-                print("❌ [SHEETS OMITIDO] No se proporcionó un nombre de planilla válido.")
+            spreadsheet_id = datos_registro.get("spreadsheet_id")
+            if not spreadsheet_id:
+                print("❌ [SHEETS OMITIDO] No se proporcionó un 'spreadsheet_id' válido.")
                 return
 
             client = get_sheets()
             
-            # 1. Validar que la planilla exista en Drive antes de operar
-            spreadsheet = self.validar_planilla_en_sheets(client, nombre_planilla)
+            # 1. Validar y abrir la planilla directamente por su ID inmutable
+            spreadsheet = self.validar_planilla_por_id(client, spreadsheet_id)
             if not spreadsheet:
-                print(f"❌ [SHEETS CANCELADO] Omitiendo sincronización porque la planilla '{nombre_planilla}' no existe en Drive.")
+                print(f"❌ [SHEETS CANCELADO] Omitiendo sincronización porque no se encontró la planilla con ID '{spreadsheet_id}' en Drive.")
                 return
 
             numero_territorio = datos_registro["numero_territorio"]
             fila_logica = datos_registro["fila"]  # 1 a 5 (salida_idx + 1)
+
+            # 🛡️ NORMALIZACIÓN / CONTROL DE RANGO (1 a 5)
+            if fila_logica > 5:
+                fila_logica = ((fila_logica - 1) % 5) + 1
+
             salida_idx = fila_logica - 1
 
-            # 2. Resolver Zona mediante el nombre
-            zona = self.detectar_zona_por_nombre(nombre_planilla, numero_territorio)
+            # 2. Resolver Zona de forma matemática/directa por número de territorio o parámetro
+            zona = datos_registro.get("zona")
+            if not zona:
+                if 1 <= numero_territorio <= 20:
+                    zona = 1
+                elif 21 <= numero_territorio <= 40:
+                    zona = 2
+                elif 41 <= numero_territorio <= 60:
+                    zona = 3
+                else:
+                    raise ValueError(f"No se pudo determinar la zona para el territorio {numero_territorio}")
+
             inicio_territorio = 1 if zona == 1 else (21 if zona == 2 else 41)
             
             if numero_territorio < inicio_territorio or numero_territorio >= inicio_territorio + len(VALORES_FILAS):
@@ -107,6 +136,11 @@ class PlanillaService:
             celdas_cond = archivo.localizar_celda_conductor(fila_base, 2)
             celdas_asig = archivo.localizar_celda_fecha_asignado(fila_base, 2)
             celdas_comp = archivo.localizar_celda_fecha_completado(fila_base, 2)
+
+            # 🛡️ CONTROL DE SEGURIDAD CONTRA INDEX ERROR
+            if salida_idx >= len(celdas_cond):
+                print(f"❌ [SHEETS OMITIDO] El índice de salida ({salida_idx}) excede las celdas físicamente mapeadas ({len(celdas_cond)}).")
+                return
 
             c_cond = celdas_cond[salida_idx]
             c_asig = celdas_asig[salida_idx]
@@ -179,12 +213,12 @@ class PlanillaService:
             sheet.batch_update(lista_actualizaciones, value_input_option='USER_ENTERED')
             sheet.batch_format(lista_formatos)
             
-            print(f"[SHEETS SUCCESS] Sincronizado Territorio {numero_territorio} en Fila Física {fila_base} de la planilla: '{nombre_planilla}'")
+            print(f"[SHEETS SUCCESS] Sincronizado Territorio {numero_territorio} en Fila Física {fila_base} para la Planilla ID: '{spreadsheet_id}'")
 
         except Exception as e:
             print("[SHEETS ERROR] Falló la sincronización con Google Sheets:")
             traceback.print_exc()
-
+    
     # ============================================
     # Métodos aplicados a formato y guardado visual en planilla
     
