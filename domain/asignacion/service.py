@@ -219,16 +219,20 @@ class AsignacionService:
             }
         }
 
-    def actualizar_asignacion(self, asignacion_id: int, data: AsignacionUpdate) -> AsignacionUpdatedOut:
+    def actualizar_asignacion(self, asignacion_id: int, data: AsignacionUpdate) -> dict:
         try:
             asignacion = self.asignacion_repo.obtener_por_id(asignacion_id)
             if not asignacion:
                 raise HTTPException(status_code=404, detail=f"Asignación {asignacion_id} no encontrada")
 
             nuevo_conductor_id = None
+            conductor_nombre = None
             if data.conductor is not None:
                 conductor, _ = self.conductor_repo.obtener_o_crear(data.conductor)
                 nuevo_conductor_id = conductor.id
+                conductor_nombre = conductor.nombre_completo
+            else:
+                conductor_nombre = asignacion.conductor.nombre_completo if asignacion.conductor else "Sin Asignar"
 
             ya_estaba_completada = asignacion.fecha_completado is not None
 
@@ -246,6 +250,29 @@ class AsignacionService:
             else:
                 self.db.commit()
 
+            # Preparamos el payload de Google Sheets asegurando la planilla mediante código
+            territorio = self.territorio_repo.obtener_por_id(updated_asignacion.territorio_id)
+            spreadsheet_id = updated_asignacion.planilla.spreadsheet_id if updated_asignacion.planilla else None
+
+            # Si por alguna razón no tuviera spreadsheet_id, usamos el buscador/autocreador por código dinámico
+            if not spreadsheet_id and updated_asignacion.planilla_ciclo and territorio:
+                if self.planilla_service:
+                    spreadsheet_id = self.planilla_service.asegurar_planilla_dinamica(self.db, territorio.zona, updated_asignacion.planilla_ciclo)
+
+            sheets_payload = {}
+            if territorio:
+                sheets_payload = {
+                    "numero_territorio": territorio.numero,
+                    "conductor": conductor_nombre,
+                    "fecha_asignado": updated_asignacion.fecha_asignado,
+                    "fecha_completado": updated_asignacion.fecha_completado,
+                    "cantidad_abarcado": updated_asignacion.cantidad_abarcado,
+                    "fila": updated_asignacion.fila,
+                    "zona": territorio.zona,
+                    "spreadsheet_id": spreadsheet_id,
+                    "planilla_ciclo": updated_asignacion.planilla_ciclo
+                }
+
         except HTTPException:
             self.db.rollback()
             raise
@@ -253,10 +280,11 @@ class AsignacionService:
             self.db.rollback()
             raise HTTPException(status_code=500, detail=f"Error al actualizar: {str(e)}") from e
 
-        return AsignacionUpdatedOut(
-            message="Asignación actualizada correctamente",
-            asignacion_id=asignacion_id,
-        )
+        return {
+            "message": "Asignación actualizada correctamente",
+            "asignacion_id": asignacion_id,
+            "sheets_payload": sheets_payload
+        }
 
     def _verificar_y_crear_proxima_planilla(self, territorio_id: int):
         estado = self.territorio_service.obtener_estado_planilla(territorio_id)

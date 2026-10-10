@@ -79,6 +79,7 @@ def crear_asignacion(
 
 
 # ── PUT /asignaciones/{id} ───────────────────────────────────────────────────
+
 @router.put(
     "/{asignacion_id}",
     response_model=AsignacionUpdatedOut,
@@ -87,19 +88,25 @@ def crear_asignacion(
 def actualizar_asignacion(
     asignacion_id: int,
     data: AsignacionUpdate,
+    background_tasks: BackgroundTasks, # <-- INYECTAMOS BACKGROUND TASKS AQUÍ TAMBIÉN
     service: AsignacionService = Depends(get_asignacion_service),
     _: CurrentUser = Depends(require_admin),
 ):
     """
-    Actualiza los campos enviados en el body.
-    Los campos no enviados quedan sin cambios (patch semántico).
-
-    Raises:
-        401 / 403: sin token o sin rol admin.
-        404: asignación no encontrada.
-        422: datos inválidos.
+    Actualiza los campos enviados en el body y sincroniza la celda exacta en Google Sheets.
     """
-    return service.actualizar_asignacion(asignacion_id, data)
+    res = service.actualizar_asignacion(asignacion_id, data)
+    
+    # Disparar la sincronización de la celda en segundo plano vía bisturí
+    if "sheets_payload" in res and res["sheets_payload"]:
+        planilla_service = PlanillaService()
+        background_tasks.add_task(
+            planilla_service.sincronizar_registro_bisturi, 
+            res["sheets_payload"],
+            db_session=None # O pasas la sesión si la requiere
+        )
+
+    return res
 
 
 # ── DELETE /asignaciones/{id} ────────────────────────────────────────────────

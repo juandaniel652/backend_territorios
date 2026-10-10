@@ -19,7 +19,7 @@ class PlanillaService:
         self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     # ============================================
-    # Lógica de elección y validación de planilla
+    # Lógica de elección, validación y autocreación de planilla
     
     def validar_planilla_por_id(self, client: gspread.Client, spreadsheet_id: str) -> Optional[gspread.Spreadsheet]:
         """
@@ -73,15 +73,74 @@ class PlanillaService:
 
         raise ValueError(f"No se pudo determinar la zona para la planilla: {nombre_planilla}")
 
-    def sincronizar_registro_bisturi(self, datos_registro: dict):
+    def asegurar_planilla_dinamica(self, db_session, zona: int, ciclo: int) -> Optional[str]:
+        """
+        Busca en la base de datos la planilla correspondiente a la zona y ciclo.
+        Si no existe, la crea automáticamente en Google Drive usando solo el código
+        como nombre provisional (ej: '3120') y registra la entidad en la BD.
+        Retorna el spreadsheet_id listo para usar.
+        """
+        codigo_planilla = int(f"{zona}{ciclo}")
+        
+        if not self.planilla_repo:
+            print("⚠️ [AUTOCREACIÓN] No hay un repositorio de planillas configurado en el servicio.")
+            return None
+
+        # 1. Buscar en BD si ya existe
+        planilla_db = self.planilla_repo.obtener_por_codigo(db_session, codigo_planilla) if hasattr(self.planilla_repo, 'obtener_por_codigo') else None
+        
+        # Fallback directo con SQLAlchemy si el repo no tiene el método exacto
+        if not planilla_db and hasattr(self.planilla_repo, 'db'):
+            from domain.planilla.model import NombrePlanilla
+            planilla_db = db_session.query(NombrePlanilla).filter(NombrePlanilla.codigo == codigo_planilla).first()
+
+        if planilla_db and planilla_db.spreadsheet_id:
+            return planilla_db.spreadsheet_id
+
+        # 2. SI NO EXISTE: Autocrear en Google Drive al vuelo
+        try:
+            client = get_sheets()
+            nombre_temporal = str(codigo_planilla)
+            print(f"✨ [AUTOCREACIÓN BACKEND] La planilla con código {codigo_planilla} no existe. Creando en Google Drive...")
+            
+            nuevo_spreadsheet = client.create(nombre_temporal)
+            spreadsheet_id = nuevo_spreadsheet.id
+            
+            # Nombre descriptivo por defecto
+            nombre_descriptivo = f"{ciclo}° Planilla, Zona {zona} (Auto)"
+            anio_actual = datetime.now().year
+
+            # Guardar en la Base de Datos
+            from domain.planilla.model import NombrePlanilla
+            nueva_planilla = NombrePlanilla(
+                codigo=codigo_planilla,
+                nombre_planilla=nombre_descriptivo,
+                spreadsheet_id=spreadsheet_id,
+                zona=zona,
+                ciclo=ciclo,
+                anio=anio_actual
+            )
+            db_session.add(nueva_planilla)
+            db_session.commit()
+            db_session.refresh(nueva_planilla)
+            
+            print(f"✅ [AUTOCREACIÓN ÉXITO] Planilla '{nombre_temporal}' creada en Drive y guardada en BD.")
+            return spreadsheet_id
+
+        except Exception as e:
+            print(f"❌ [ERROR AUTOCREACIÓN] No se pudo crear la planilla automática para código {codigo_planilla}: {e}")
+            traceback.print_exc()
+            return None
+
+    def sincronizar_registro_bisturi(self, datos_registro: dict, db_session=None):
         """
         Inyecta una única asignación en tiempo real en las coordenadas físicas 
         exactas de Google Sheets calculadas por 'recorrer_fila_planilla'.
-        Usa el `spreadsheet_id` inmutable para evitar fallos por nombre.
+        Si la planilla no existe, la autocrea de forma transparente.
         """
         print("="*60)
         print(f"DEBUG BISTURÍ:")
-        print(f" -> Spreadsheet ID: {datos_registro.get('spreadsheet_id')}")
+        print(f" -> Spreadsheet ID inicial: {datos_registro.get('spreadsheet_id')}")
         print(f" -> Territorio: {datos_registro.get('numero_territorio')}")
         print(f" -> Fila lógica (1-5): {datos_registro.get('fila')}")
         print(f" -> Conductor: {datos_registro.get('conductor')}")
@@ -89,8 +148,15 @@ class PlanillaService:
         
         try:
             spreadsheet_id = datos_registro.get("spreadsheet_id")
+            zona = datos_registro.get("zona")
+            ciclo = datos_registro.get("planilla_ciclo")
+
+            # Si no viene el spreadsheet_id pero tenemos zona y ciclo, intentamos asegurarlo/autocrearlo
+            if not spreadsheet_id and zona and ciclo and db_session:
+                spreadsheet_id = self.asegurar_planilla_dinamica(db_session, zona, ciclo)
+
             if not spreadsheet_id:
-                print("❌ [SHEETS OMITIDO] No se proporcionó un 'spreadsheet_id' válido.")
+                print("❌ [SHEETS OMITIDO] No se proporcionó un 'spreadsheet_id' válido ni se pudo autocrear.")
                 return
 
             client = get_sheets()
@@ -98,7 +164,7 @@ class PlanillaService:
             # 1. Validar y abrir la planilla directamente por su ID inmutable
             spreadsheet = self.validar_planilla_por_id(client, spreadsheet_id)
             if not spreadsheet:
-                print(f"❌ [SHEETS CANCELADO] Omitiendo sincronización porque no se encontró la planilla con ID '{spreadsheet_id}' en Drive.")
+                print(f"❌ [SHEETS CANCELADO] Omitiendo sincronización porque no se encontró la planilla con ID en Drive.")
                 return
 
             numero_territorio = datos_registro["numero_territorio"]
@@ -111,7 +177,6 @@ class PlanillaService:
             salida_idx = fila_logica - 1
 
             # 2. Resolver Zona de forma matemática/directa por número de territorio o parámetro
-            zona = datos_registro.get("zona")
             if not zona:
                 if 1 <= numero_territorio <= 20:
                     zona = 1
@@ -213,7 +278,7 @@ class PlanillaService:
             sheet.batch_update(lista_actualizaciones, value_input_option='USER_ENTERED')
             sheet.batch_format(lista_formatos)
             
-            print(f"[SHEETS SUCCESS] Sincronizado Territorio {numero_territorio} en Fila Física {fila_base} para la Planilla ID: '{spreadsheet_id}'")
+            print(f"[SHEETS SUCCESS] Sincronizado Territorio {numero_territorio} en Fila Física {fila_base} para la Planilla ID.")
 
         except Exception as e:
             print("[SHEETS ERROR] Falló la sincronización con Google Sheets:")
