@@ -10,6 +10,7 @@ from domain.salida.model import Salida
 from domain.agenda.model import Sugerencia  # Tu modelo de auditoría
 from domain.salida.repository import SalidaRepository
 from core.horarios_config import SEMANA_NORMAL, SEMANAS_ESPECIALES
+from core.conductores_disponibilidad import DISPONIBILIDAD_CONDUCTORES
 
 
 class AgendaQuincenalService:
@@ -34,7 +35,6 @@ class AgendaQuincenalService:
     def _resolver_cronograma_semanal(self, lunes_inicio: date) -> list[dict]:
         domingo_ancla = lunes_inicio - timedelta(days=1)
         
-        # Validación con las constantes importadas limpiamente
         if domingo_ancla in SEMANAS_ESPECIALES:
             patron_activo = SEMANAS_ESPECIALES[domingo_ancla]["patron"]
             print(f"✨ [SEMANA ESPECIAL] Aplicando {SEMANAS_ESPECIALES[domingo_ancla]['nombre']} para ancla {domingo_ancla}")
@@ -120,7 +120,7 @@ class AgendaQuincenalService:
             for item in items:
                 nueva_salida = Salida(
                     territorio_id=item["territorio_id"],
-                    conductor_id=None,  
+                    conductor_id=item.get("conductor_id"),  
                     fecha=item["fecha"],
                     turno=item["turno"],
                     punto_encuentro=item.get("punto_encuentro", "Salón del Reino"),
@@ -147,7 +147,7 @@ class AgendaQuincenalService:
                 detail=f"Error al guardar la agenda quincenal: {str(e)}"
             )
             
-    def generar_propuesta_quincenal_combinada(self) -> list[dict]:
+    def generar_propuesta_quincenal_combinada(self) -> dict:
         lunes_semanas = self._obtener_inicios_de_semana()
         propuesta_completa = []
 
@@ -181,7 +181,6 @@ class AgendaQuincenalService:
 
         sql_conductores = text("SELECT id, nombre_completo FROM conductores ORDER BY nombre_completo ASC")
         conductores_pool = self.db.execute(sql_conductores).mappings().all()
-        listado_conductores = [{"id": c["id"], "nombre_completo": c["nombre_completo"]} for c in conductores_pool]
 
         pool_territorios = list(territorios_ordenados)
 
@@ -216,6 +215,30 @@ class AgendaQuincenalService:
                     nombre_bloque_original = slot["label"]
                     horario_formateado = mapeo_horarios.get(nombre_bloque_original, f"{nombre_bloque_original} 10:00 hs")
 
+                    # 🌟 FILTRADO INTELIGENTE DE CONDUCTORES POR DÍA Y TURNO
+                    offset_dia = slot["offset"]  # 0 a 6 (Lunes a Domingo)
+                    turno_slot = slot["turno"]   # "AM" o "PM"
+
+                    conductores_aptos = []
+                    for c in conductores_pool:
+                        nombre = c["nombre_completo"]
+                        config_conductor = DISPONIBILIDAD_CONDUCTORES.get(nombre)
+
+                        # Si no está en la configuración o no tiene turnos cargados, no se ofrece
+                        if not config_conductor:
+                            continue
+
+                        turnos_por_dia = config_conductor["turnos"].get(offset_dia, [])
+                        if turno_slot in turnos_por_dia:
+                            conductores_aptos.append({
+                                "id": c["id"],
+                                "nombre_completo": nombre,
+                                "sexo": config_conductor["sexo"]
+                            })
+
+                    # Ordenamiento por prioridad: masculino primero (0), femenino después (1)
+                    conductores_aptos.sort(key=lambda x: 0 if x["sexo"] == "masculino" else 1)
+
                     salidas_semana.append({
                         "fecha": fecha_exacta.strftime("%Y-%m-%d"),
                         "horario": horario_formateado,
@@ -225,7 +248,8 @@ class AgendaQuincenalService:
                         "score": score_final,
                         "punto_encuentro": "A confirmar",
                         "conductor_id": None,
-                        "conductor_nombre": "Sin asignar"
+                        "conductor_nombre": "Sin asignar",
+                        "conductores_disponibles": conductores_aptos  # 📌 Lista filtrada por día/turno y priorizada por sexo
                     })
 
             domingo_fin = lunes_inicio + timedelta(days=6)
@@ -247,6 +271,5 @@ class AgendaQuincenalService:
             })
 
         return {
-            "propuesta": propuesta_completa,
-            "conductores_disponibles": listado_conductores
+            "propuesta": propuesta_completa
         }
