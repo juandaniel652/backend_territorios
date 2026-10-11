@@ -16,6 +16,7 @@ DISPONIBILIDAD_CONDUCTORES = {
     "Claudio Crocco": {"sexo": "masculino", "turnos": {}},
     "Jorge Argüello": {"sexo": "masculino", "turnos": {1: ["AM"], 5: ["AM"]}},
     "Rosa Sotelo": {"sexo": "femenino", "turnos": {3: ["AM"], 4: ["AM"]}},
+    "Juan Dominguez": {"sexo": "masculino", "turnos": { 5: ["AM"]}},
     "Juan Herrera": {"sexo": "masculino", "turnos": {0: ["AM", "PM"], 1: ["AM", "PM"], 2: ["AM", "PM"], 3: ["AM", "PM"], 4: ["AM", "PM"], 5: ["AM", "PM"], 6: ["AM", "PM"]}},
     "Maia Altamirano": {"sexo": "femenino", "turnos": {1: ["AM", "PM"], 2: ["AM", "PM"], 3: ["AM", "PM"], 4: ["AM", "PM"]}},
     "Rocio Ferreira": {"sexo": "femenino", "turnos": {1: ["AM"], 3: ["AM"]}},
