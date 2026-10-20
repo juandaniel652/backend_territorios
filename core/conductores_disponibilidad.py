@@ -35,7 +35,7 @@ DISPONIBILIDAD_CONDUCTORES = {
     "Ricardo Torres": {"sexo": "masculino", "turnos": {}},
     "Araceli Altamirano": {"sexo": "femenino", "turnos": {}},
     "Jorge Peralta": {"sexo": "masculino", "turnos": {}},
-    "Francisco Cristaldo": {"sexo": "masculino", "turnos": {1: ["PM"]}},
+    "Francisco Cristaldo": {"sexo": "masculino", "turnos": {1: ["PM"], 3: ["PM"]}},
     "Lilia Ligeron": {"sexo": "femenino", "turnos": {1: ["AM"]}},
     "Andres Sanchez": {"sexo": "masculino", "turnos": {}},
     "Juan Ontiveros": {"sexo": "masculino", "turnos": {5: ["AM"]}},

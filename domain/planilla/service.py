@@ -5,7 +5,6 @@ from typing import Any, Optional
 import gspread
 
 from core.google_sheets import get_sheets
-from core.utils import obtener_anio_servicio, calcular_nombre_planilla_desde_salida
 import utils.recorrer_filas as archivo
 
 VALORES_FILAS = [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110]
@@ -283,6 +282,12 @@ class PlanillaService:
         except Exception as e:
             print("[SHEETS ERROR] Falló la sincronización con Google Sheets:")
             traceback.print_exc()
+    
+    # ============================================
+    # Llamada del repositorio 'obtener_todas', devuelve todas las planillas con sus atributos
+    
+    def listar_planillas(self):
+        return self.planilla_repo.obtener_todas()
     
     # ============================================
     # Métodos aplicados a formato y guardado visual en planilla

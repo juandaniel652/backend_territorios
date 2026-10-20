@@ -56,3 +56,12 @@ class PlanillaRepository:
             "anio": anio
         })
         self.db.commit()
+
+    def obtener_todas(self) -> list[dict]:
+        sql = text("""
+            SELECT id, zona, ciclo, nombre_planilla, anio, codigo, spreadsheet_id
+            FROM nombres_planillas
+            ORDER BY codigo ASC
+        """)
+        rows = self.db.execute(sql).mappings().all()
+        return [dict(row) for row in rows]

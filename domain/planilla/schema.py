@@ -5,6 +5,8 @@ class PlanillaBase(BaseModel):
     ciclo: int
     nombre_planilla: str
     anio: int
+    codigo: int
+    spreadsheet_id: str
 
 class PlanillaCreate(PlanillaBase):
     """Para crear una nueva (aunque el Trigger ya lo hace)"""
