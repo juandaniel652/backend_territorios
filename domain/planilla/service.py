@@ -289,6 +289,14 @@ class PlanillaService:
     def listar_planillas(self):
         return self.planilla_repo.obtener_todas()
     
+    def obtener_planillas_totales (self):
+
+        return self.planilla_repo.obtener_total_de_planillas()
+    
+    def obtener_solo_planillas_completas (self): 
+
+        return self.planilla_repo.obtener_total_de_planillas_completadas()
+    
     # ============================================
     # Métodos aplicados a formato y guardado visual en planilla
     

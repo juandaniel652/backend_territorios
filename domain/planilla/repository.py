@@ -65,3 +65,22 @@ class PlanillaRepository:
         """)
         rows = self.db.execute(sql).mappings().all()
         return [dict(row) for row in rows]
+
+    def obtener_total_de_planillas (self) -> int:
+        sql = text("SELECT count(*) from nombres_planillas;")
+        total = self.db.execute(sql).scalar_one()
+
+        return total
+        
+    def obtener_total_de_planillas_completadas (self) -> int:
+        sql = text("""SELECT COUNT(*) AS total_planillas_cumplidoras
+                    FROM (
+                        SELECT planilla_id
+                        FROM asignaciones 
+                        WHERE planilla_id BETWEEN 1 AND 17
+                        GROUP BY planilla_id
+                        HAVING COUNT(*) = 100
+                    ) AS subconsulta;""")
+        total = self.db.execute(sql).scalar_one() 
+
+        return total
