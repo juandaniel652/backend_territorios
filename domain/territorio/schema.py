@@ -13,7 +13,7 @@ Esto reemplaza el dict crudo que se armaba directamente en app.py y querys_terri
 
 from pydantic import BaseModel, ConfigDict
 from datetime import date
-from typing import Optional
+from typing import Optional, List
 
 
 class TerritorioOut(BaseModel):
@@ -142,5 +142,14 @@ class ReporteTerritorioSemanal(BaseModel):
     fecha_asignado: Optional[date] = None
     fecha_completado: Optional[date] = None
     cantidad_abarcado: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class SemanaConReporteOut(BaseModel):
+    """Estructura consolidada: Semana con su lista de reportes anidados."""
+    label: str
+    fecha_inicio: date
+    fecha_fin: date
+    reportes: List[ReporteTerritorioSemanal]
 
     model_config = ConfigDict(from_attributes=True)

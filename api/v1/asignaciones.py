@@ -130,21 +130,21 @@ def eliminar_asignacion(
     return service.eliminar_asignacion(asignacion_id)
 
 
-@router.post("/confirmar-agenda")
-def confirmar_agenda(
-    data: AgendaConfirmar,
-    service: AsignacionService = Depends(get_asignacion_service),
-    _: CurrentUser = Depends(require_admin),
-):
-    return service.confirmar_agenda_masiva(data)
+#@router.post("/confirmar-agenda")
+#def confirmar_agenda(
+#    data: AgendaConfirmar,
+#    service: AsignacionService = Depends(get_asignacion_service),
+#    _: CurrentUser = Depends(require_admin),
+#):
+#    return service.confirmar_agenda_masiva(data)
 
-@router.post("/preview-agenda")
-def preview_agenda(
-    data: AgendaConfirmar,
-    service: AsignacionService = Depends(get_asignacion_service),
-    _: CurrentUser = Depends(require_admin),
-):
-    return service.preview_agenda(data)
+#@router.post("/preview-agenda")
+#def preview_agenda(
+#    data: AgendaConfirmar,
+#    service: AsignacionService = Depends(get_asignacion_service),
+#    _: CurrentUser = Depends(require_admin),
+#):
+#    return service.preview_agenda(data)
 
 @router.get("/sugerencias", summary="Obtener sugerencias de territorios")
 def sugerencias(

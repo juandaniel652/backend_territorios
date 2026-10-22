@@ -27,7 +27,7 @@ from fastapi import HTTPException
 from typing import List
 
 from domain.territorio.repository import TerritorioRepositoryProtocol
-from domain.territorio.schema import (TerritorioConAsignacionesOut, SugerenciaTerritorio, SugerenciasOut, TerritorioPlanillaInfo, HistorialPosicionadoOut, AsignacionPosicionada)
+from domain.territorio.schema import (TerritorioConAsignacionesOut, SugerenciaTerritorio, SugerenciasOut, TerritorioPlanillaInfo, HistorialPosicionadoOut, AsignacionPosicionada, SemanaConReporteOut)
 
 
 from core.utils import extraer_info_planilla, obtener_anio_servicio
@@ -450,4 +450,26 @@ class TerritorioService:
         datos = self.repo.obtener_reporte_por_rango(fecha_inicio, fecha_fin)
         return [ReporteTerritorioSemanal(**item) for item in datos]
     
-    
+    def obtener_semanas_con_reportes(self) -> List[SemanaConReporteOut]:
+        """
+        Retorna todas las semanas disponibles con su respectivo listado
+        de reportes de territorios ya anidados para el frontend.
+        """
+        semanas = self.obtener_semanas_disponibles()
+        resultado = []
+
+        for semana in semanas:
+            reportes_semana = self.obtener_reporte_semanal(
+                fecha_inicio=semana.fecha_inicio,
+                fecha_fin=semana.fecha_fin
+            )
+            resultado.append(
+                SemanaConReporteOut(
+                    label=semana.label,
+                    fecha_inicio=semana.fecha_inicio,
+                    fecha_fin=semana.fecha_fin,
+                    reportes=reportes_semana
+                )
+            )
+
+        return resultado

@@ -26,15 +26,6 @@ class ConfirmarAgendaIn(BaseModel):
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
-@router.get("/sugerir-quincenal", summary="Genera la propuesta de agenda filtrada por una sola zona")
-def sugerir_quincenal(
-    zona: int = Query(..., description="Zona de la planilla a filtrar"),
-    db: Session = Depends(get_db)
-):
-    service = AgendaQuincenalService(db)
-    return service.generar_propuesta_quincenal(zona=zona)
-
-
 @router.get("/sugerir-combinada", summary="Genera la propuesta de agenda unificada intercalando las 3 zonas con restricciones")
 def sugerir_combinada(
     db: Session = Depends(get_db)
@@ -48,12 +39,12 @@ def sugerir_combinada(
     return service.generar_propuesta_quincenal_combinada()
 
 
-@router.post("/confirmar-quincenal", summary="Confirma la propuesta y la inserta en salidas (vacias) y sugerencias")
-def confirmar_quincenal(
-    data: ConfirmarAgendaIn,
-    db: Session = Depends(get_db)
-):
-    service = AgendaQuincenalService(db)
-    # Convertimos los objetos Pydantic a diccionarios planos para el servicio domain
-    items_dict = [item.model_dump() for item in data.items]
-    return service.confirmar_propuesta(items_dict)
+#@router.post("/confirmar-quincenal", summary="Confirma la propuesta y la inserta en salidas (vacias) y sugerencias")
+#def confirmar_quincenal(
+#    data: ConfirmarAgendaIn,
+#    db: Session = Depends(get_db)
+#):
+#    service = AgendaQuincenalService(db)
+#    # Convertimos los objetos Pydantic a diccionarios planos para el servicio domain
+#    items_dict = [item.model_dump() for item in data.items]
+#    return service.confirmar_propuesta(items_dict)

@@ -20,7 +20,7 @@ DISPONIBILIDAD_CONDUCTORES = {
     "Juan Herrera": {"sexo": "masculino", "turnos": {0: ["AM", "PM"], 1: ["AM", "PM"], 2: ["AM", "PM"], 3: ["AM", "PM"], 4: ["AM", "PM"], 5: ["AM", "PM"], 6: ["AM", "PM"]}},
     "Maia Altamirano": {"sexo": "femenino", "turnos": {1: ["AM", "PM"], 2: ["AM", "PM"], 3: ["AM", "PM"], 4: ["AM", "PM"]}},
     "Rocio Ferreira": {"sexo": "femenino", "turnos": {1: ["AM"], 3: ["AM"]}},
-    "Maximiliano Coronel": {"sexo": "masculino", "turnos": {5: ["AM"]}},
+    "Maximiliano Coronel": {"sexo": "masculino", "turnos": {1: ["AM"], 5: ["AM"]}},
     "Fatima Valiente": {"sexo": "femenino", "turnos": {1: ["AM", "PM"], 3: ["AM", "PM"]}},
     "Daniel Ortiz": {"sexo": "masculino", "turnos": {}},
     "Cynthia Salas": {"sexo": "femenino", "turnos": {1: ["AM"], 4: ["AM"]}},

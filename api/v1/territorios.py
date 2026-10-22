@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from domain.territorio.model import Territorio
 from domain.asignacion.model import Asignacion
 from domain.conductor.model import Conductor
-from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOut, AgendaItemIn, PropuestaDiaOut, TerritorioPlanillaInfo, HistorialPosicionadoOut, AsignacionPosicionada, SemanaDisponible, ReporteTerritorioSemanal
+from domain.territorio.schema import TerritorioConAsignacionesOut, SugerenciasOut, TerritorioPlanillaInfo, HistorialPosicionadoOut,  SemanaDisponible, ReporteTerritorioSemanal, SemanaConReporteOut
 from core.database import get_db
 from domain.territorio.repository import TerritorioRepository
 from domain.territorio.service import TerritorioService
@@ -75,32 +75,32 @@ def obtener_historial(
 ):
     return service.obtener_historial(numero)
 
-@router.post("/confirmar-agenda", summary="Guarda la propuesta aceptada en la DB")
-def confirmar_agenda(
-    data: AgendaConfirmar,
-    service: AsignacionService = Depends(get_asignacion_service)
-):
-    """
-    Toma la lista de territorios, conductores y turnos 
-    y los persiste en las tablas 'asignaciones' y 'salidas'.
-    """
-    return service.confirmar_agenda_masiva(data)
-
-@router.get(
-    "/propuesta-agenda",
-    response_model=List[PropuestaDiaOut],  # <--- Usamos el nuevo esquema
-    summary="Genera una propuesta basada en el día (Sábado vs Semana)",
-)
-def obtener_propuesta_agenda(
-    fecha: date = Query(..., description="Fecha para la que se planea la salida"),
-    service: TerritorioService = Depends(get_territorio_service),
-):
-    """
-    Lógica de negocio aplicada:
-    - Si es Sábado: Filtra Zona 3 y Zona 2 crítica.
-    - Si es otro día: Filtra el resto.
-    """
-    return service.generar_propuesta_dia(fecha)
+#@router.post("/confirmar-agenda", summary="Guarda la propuesta aceptada en la DB")
+#def confirmar_agenda(
+#    data: AgendaConfirmar,
+#    service: AsignacionService = Depends(get_asignacion_service)
+#):
+#    """
+#    Toma la lista de territorios, conductores y turnos 
+#    y los persiste en las tablas 'asignaciones' y 'salidas'.
+#    """
+#    return service.confirmar_agenda_masiva(data)
+#
+#@router.get(
+#    "/propuesta-agenda",
+#    response_model=List[PropuestaDiaOut],  # <--- Usamos el nuevo esquema
+#    summary="Genera una propuesta basada en el día (Sábado vs Semana)",
+#)
+#def obtener_propuesta_agenda(
+#    fecha: date = Query(..., description="Fecha para la que se planea la salida"),
+#    service: TerritorioService = Depends(get_territorio_service),
+#):
+#    """
+#    Lógica de negocio aplicada:
+#    - Si es Sábado: Filtra Zona 3 y Zona 2 crítica.
+#    - Si es otro día: Filtra el resto.
+#    """
+#    return service.generar_propuesta_dia(fecha)
 
 @router.get("/{numero}/planilla-status", response_model=TerritorioPlanillaInfo)
 def get_territorio_planilla_status(
@@ -142,7 +142,7 @@ def obtener_semanas_con_actividad(
 
 
 @router.get(
-    "/reportes/semanal",
+    "/reportes/semanal_manual",
     response_model=List[ReporteTerritorioSemanal],
     summary="Reporte detallado de territorios completados en una semana",
 )
@@ -156,3 +156,17 @@ def obtener_reporte_semanal(
     indicando el conductor, la zona y la cantidad abarcada.
     """
     return service.obtener_reporte_semanal(fecha_inicio, fecha_fin)
+
+@router.get(
+    "/reportes/semanas-con-reportes",
+    response_model=List[SemanaConReporteOut],
+    summary="Reporte consolidado: semanas con sus respectivos reportes anidados",
+)
+def obtener_semanas_con_reportes(
+    service: TerritorioService = Depends(get_territorio_service),
+):
+    """
+    Devuelve todas las semanas con actividad junto con todos los territorios
+    trabajados en cada período, evitando múltiples llamadas desde el frontend.
+    """
+    return service.obtener_semanas_con_reportes()
